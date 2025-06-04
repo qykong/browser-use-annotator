@@ -5,14 +5,14 @@ A web-based tool for annotating browser interactions to create high-quality trai
 ![Browser Action Annotation Tool Demo](img/demo_1.png)
 
 
-## 🚀 Perfect for Training
+## Perfect for Training
 
 This tool is specifically designed to create training data for:
 - **[UI-TARS](https://github.com/bytedance/UI-TARS)** - ByteDance's GUI interaction agent
 - **Qwen2.5-VL** - Alibaba's vision-language model
 - **Other multimodal agents** requiring web interaction understanding
 
-## 📦 Installation
+## Installation
 
 1. Install the package:
    ```bash
@@ -30,7 +30,7 @@ This tool is specifically designed to create training data for:
    uv run app.py
    ```
 
-## 🔧 Usage
+## Usage
 
 1. **Start a New Task**: Enter your task description in the "Current Task" field
 2. **Load Target Website**: Submit the URL you want to annotate
@@ -44,3 +44,7 @@ This tool is specifically designed to create training data for:
 
 - [ ] Connect to external hosted browser services (e.g., [AgentBay](https://agentbay.console.aliyun.com/))
 - [ ] Export data in UI-TARS training format
+
+## Acknowledgments
+
+This project builds upon and includes code from: https://github.com/trycua/cua
