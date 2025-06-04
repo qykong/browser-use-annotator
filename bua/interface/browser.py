@@ -1,38 +1,92 @@
 """Browser interface using Playwright for Chrome control."""
 
 import asyncio
-import io
-import json
-import base64
+import tempfile
 from typing import Any, Dict, List, Optional, Tuple
-from PIL import Image
+
 from loguru import logger
 
-class BrowserInterface:
+try:
+    from playwright.async_api import ViewportSize, async_playwright
+except ImportError:
+    raise ImportError(  # noqa: B904
+        "Playwright is required for browser interface. "
+        "Install with: pip install playwright && playwright install chromium"
+    )
+
+visualize_click_position_js = """([x, y]) => {
+                // Create a temporary visual indicator
+                const indicator = document.createElement('div');
+                indicator.style.position = 'fixed'; // Changed to fixed to show in viewport coordinates
+                indicator.style.left = `${x - 10}px`;
+                indicator.style.top = `${y - 10}px`;
+                indicator.style.width = '10px';
+                indicator.style.height = '10px';
+                indicator.style.borderRadius = '50%';
+                indicator.style.backgroundColor = 'rgba(255, 0, 0, 0.5)';
+                indicator.style.border = '2px solid red';
+                indicator.style.zIndex = '10000';
+                indicator.style.pointerEvents = 'none';
+                document.body.appendChild(indicator);
+                
+                // Add a text label showing coordinates
+                const label = document.createElement('div');
+                label.style.position = 'fixed';
+                label.style.left = `${x + 15}px`;
+                label.style.top = `${y - 10}px`;
+                label.style.backgroundColor = 'black';
+                label.style.color = 'white';
+                label.style.padding = '2px 5px';
+                label.style.borderRadius = '3px';
+                label.style.fontSize = '12px';
+                label.style.zIndex = '10001';
+                label.style.pointerEvents = 'none';
+                label.textContent = `(${Math.round(x)}, ${Math.round(y)})`;
+                document.body.appendChild(label);
+                
+                // Remove the indicators after a delay
+                setTimeout(() => {
+                    document.body.removeChild(indicator);
+                    document.body.removeChild(label);
+                }, 1000);
+            }"""
+
+
+class BrowserComputerInterface:
     """Interface for controlling Chrome browser using Playwright."""
 
     def __init__(
         self,
+        user_data_dir: str | None = None,
+        headless: bool = False,
+        context_args: list[str] = [],
+        viewport: ViewportSize | None = None,
     ):
         self._browser = None
         self._page = None
         self._playwright = None
         self._ready = False
+        self.user_data_dir = user_data_dir
+        self.headless = headless
+        self.context_args = context_args
+        self.viewport = viewport
 
     async def _launch_browser(self):
         """Launch Chrome browser using Playwright."""
         try:
-            from playwright.async_api import async_playwright
-
             logger.info("Launching Chrome browser...")
             self._playwright = await async_playwright().start()
 
+            if self.user_data_dir is None:
+                temp_dir = tempfile.mkdtemp()
+                self.user_data_dir = temp_dir
             self._browser = await self._playwright.chromium.launch_persistent_context(
                 channel="chrome",
-                headless=False,  # Set to True for headless mode
-                viewport={"width": 1280, "height": 800},
+                user_data_dir=self.user_data_dir,
+                headless=self.headless,  # Set to True for headless mode
+                args=self.context_args,
+                viewport=self.viewport,
             )
-
             # Create a new page with viewport
             self._page = await self._browser.new_page()
 
@@ -40,15 +94,8 @@ class BrowserInterface:
 
             logger.info("Chrome browser launched successfully")
             self._ready = True
-
-        except ImportError:
-            raise ImportError(
-                "Playwright is required for browser interface. "
-                "Install with: pip install playwright && playwright install chromium"
-            )
         except Exception as e:
-            from loguru import logger
-            logger.exception('')
+            logger.exception("")
             logger.error(f"Failed to launch browser: {e}")
             raise
 
@@ -89,13 +136,22 @@ class BrowserInterface:
         """Force close the browser connection."""
         self.close()
 
+    async def visualize_click_position(self, x: int, y: int) -> None:
+        """Visualize the click position."""
+        if not self._page:
+            raise RuntimeError("Browser not initialized")
+        await self._page.evaluate(visualize_click_position_js, [x, y])
+
     # Mouse Actions
-    async def left_click(self, x: Optional[int] = None, y: Optional[int] = None) -> None:
+    async def left_click(
+        self, x: Optional[int] = None, y: Optional[int] = None, visualize: bool = False
+    ) -> None:
         """Perform a left click."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
         assert x is not None and y is not None, "x and y must be provided"
-
+        if visualize:
+            await self.visualize_click_position(x, y)
         await self._page.mouse.click(x, y)
 
     async def right_click(self, x: Optional[int] = None, y: Optional[int] = None) -> None:
@@ -105,11 +161,15 @@ class BrowserInterface:
         assert x is not None and y is not None, "x and y must be provided"
         await self._page.mouse.click(x, y, button="right")
 
-    async def double_click(self, x: Optional[int] = None, y: Optional[int] = None) -> None:
+    async def double_click(
+        self, x: Optional[int] = None, y: Optional[int] = None, visualize: bool = False
+    ) -> None:
         """Perform a double click."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
         assert x is not None and y is not None, "x and y must be provided"
+        if visualize:
+            await self.visualize_click_position(x, y)
         await self._page.mouse.dblclick(x, y)
 
     async def move_cursor(self, x: int, y: int) -> None:
@@ -231,7 +291,9 @@ class BrowserInterface:
             await self._page.keyboard.up(key)
 
     # Scrolling Actions
-    async def scroll_down(self, x: Optional[int]=None, y: Optional[int]=None, clicks: int = 1) -> None:
+    async def scroll_down(
+        self, x: Optional[int] = None, y: Optional[int] = None, clicks: int = 1
+    ) -> None:
         """Scroll down."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
@@ -242,7 +304,6 @@ class BrowserInterface:
             viewport_height = viewport["height"]
         if x is None or y is None:
             # Get viewport height and calculate scroll distance (0.5 viewport height)
-
 
             scroll_distance = viewport_height // 2
 
@@ -256,8 +317,9 @@ class BrowserInterface:
             for _ in range(clicks):
                 await self._page.mouse.wheel(0, scroll_distance)
 
-
-    async def scroll_up(self, x: Optional[int]=None, y: Optional[int]=None, clicks: int = 1) -> None:
+    async def scroll_up(
+        self, x: Optional[int] = None, y: Optional[int] = None, clicks: int = 1
+    ) -> None:
         """Scroll up."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
@@ -269,8 +331,6 @@ class BrowserInterface:
             viewport_height = viewport["height"]
         # Get viewport height and calculate scroll distance (0.5 viewport height)
         if x is None or y is None:
-
-
             scroll_distance = viewport_height // 2
 
             for _ in range(clicks):
@@ -491,9 +551,10 @@ class BrowserInterface:
         await self._page.goto(url)
         await self._page.wait_for_load_state("domcontentloaded")
 
-    async def triple_click(self, x: int, y: int) -> None:
+    async def triple_click(self, x: int, y: int, visualize: bool = False) -> None:
         """Perform a triple click."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
-
+        if visualize:
+            await self.visualize_click_position(x, y)
         await self._page.mouse.click(x, y, click_count=3)

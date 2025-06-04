@@ -1,6 +1,29 @@
+import os
+
+from interface.browser import BrowserComputerInterface
+from interface.models import Key
+
+VALID_KEYS = [key.value for key in Key]  + [
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+    'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
+]
+VALID_KEYS = list(dict.fromkeys(VALID_KEYS)) # remove duplicates, preserve order
+LANG = "English"
+OUTPUT_DIR = "examples/output"
+SESSION_DIR = os.path.join(OUTPUT_DIR, "sessions")
+computer: BrowserComputerInterface | None = None
+tool_call_logs = []
+memory = ""
+last_action = {"name": "", "action": "", "arguments": {}}
+last_screenshot = None  # Store the most recent screenshot
+last_screenshot_before = None  # Store the most [-2]th recent screenshot
+screenshot_images = []  # Array to store all screenshot images
+
+
 LANGUAGES = {
     "English": {
-        "title": "Computer Interface Tool",
+        "title": "Browser Action Annotation Tool",
         "current_screenshot": "Current Screenshot",
         "click_type": "Click Type",
         "wait": "WAIT",
@@ -69,15 +92,16 @@ LANGUAGES = {
         "command_to_run": "Command to run",
         "run_command": "Run Command",
         "command_output": "Command Output",
-        "shutdown_computer": "Shutdown Computer",
+        "shutdown_computer": "Shutdown Browser",
         "language": "Language",
         "public": "public",
         "private": "private",
         "current_task_placeholder": "Enter current task here...",
-        "triple_click": "Triple Click"
+        "triple_click": "Triple Click",
+        "message_editor": "Message Editor",
     },
     "中文": {
-        "title": "计算机接口工具",
+        "title": "浏览器操作标注工具",
         "current_screenshot": "当前截图",
         "click_type": "点击类型",
         "wait": "等待",
@@ -146,12 +170,13 @@ LANGUAGES = {
         "command_to_run": "要运行的命令",
         "run_command": "运行命令",
         "command_output": "命令输出",
-        "shutdown_computer": "关闭计算机",
+        "shutdown_computer": "关闭浏览器",
         "language": "语言",
         "public": "公开",
         "private": "私有",
         "current_task_placeholder": "在此输入当前任务...",
-        "triple_click": "三击"
+        "triple_click": "三击",
+        "message_editor": "消息编辑器",
     }
 }
 
@@ -175,3 +200,4 @@ title_mappings = {
                 "shutdown": "🛑 Shutting Down",
                 "triple_click": "🖱️ Triple Click"
             }
+

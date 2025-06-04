@@ -1,7 +1,12 @@
-import datasets
 import json
+import os
+
+import datasets
 import gradio as gr
 from PIL import Image, ImageDraw
+
+from gradio.constants import SESSION_DIR
+from gradio.utils import load_all_sessions
 
 tool_calls_list: list[list[dict]] | None = None
 images_list: list[list[Image.Image]] | None = None
@@ -9,6 +14,7 @@ dataset: datasets.Dataset | datasets.DatasetDict | None = None
 current_image_index = 2
 current_tool_call_index = 2
 prompt_text = ""
+tool_calls_index = 0
 
 def plot_dot_to_image(image, action):
     image = image.convert("RGBA")
@@ -65,6 +71,7 @@ def plot_image(image, tool_calls, image_index):
 
 
 def load_dataset(dataset_path):
+    dataset_path = os.path.join(SESSION_DIR, dataset_path)
     global tool_calls_list, images_list, current_image_index, dataset, prompt_text
     dataset = datasets.load_from_disk(dataset_path)
     tool_calls_list = [json.loads(str(data)) for data in dataset["tool_calls"]]
@@ -75,7 +82,6 @@ def load_dataset(dataset_path):
     prompt_text = json.loads(tool_calls_list[0][1]["arguments"])["text"]
 
     return (
-        gr.Dropdown(choices=[i for i in range(len(tool_calls_list))], value=0, interactive=True),
         image,
         action,
         reasoning,
@@ -83,8 +89,8 @@ def load_dataset(dataset_path):
     )
 
 
-def next_image(tool_calls_index, reasoning_text):
-    global tool_calls_list, images_list, current_image_index, current_tool_call_index
+def next_image(reasoning_text):
+    global tool_calls_list, images_list, current_image_index, current_tool_call_index, tool_calls_index
 
     # Save current reasoning if there are any updates
     if tool_calls_list is not None and reasoning_text.strip():
@@ -103,8 +109,8 @@ def next_image(tool_calls_index, reasoning_text):
     return image, action, reasoning
 
 
-def prev_image(tool_calls_index, reasoning_text):
-    global tool_calls_list, images_list, current_image_index, current_tool_call_index
+def prev_image(reasoning_text):
+    global tool_calls_list, images_list, current_image_index, current_tool_call_index, tool_calls_index
 
     # Save current reasoning if there are any updates
     if tool_calls_list is not None and reasoning_text.strip():
@@ -131,6 +137,7 @@ def edit_reasoning(reasoning):
 
 
 def save_dataset(dataset_path, prompt_text_box_value):
+    dataset_path = os.path.join(SESSION_DIR, dataset_path)
     global tool_calls_list, images_list, dataset
     assert tool_calls_list is not None and images_list is not None and dataset is not None
 
@@ -148,17 +155,20 @@ def save_dataset(dataset_path, prompt_text_box_value):
     updated_dataset.save_to_disk(dataset_path)
     gr.Info("Dataset saved successfully!")
 
+def load_all_datasets():
+    sessions = load_all_sessions()
+    if sessions is None:
+        return []
+    return [session["source_folder"] for session in sessions]
 
 def create_replay_gradio_ui():
     with gr.Blocks() as app:
         gr.Markdown("Replay App")
         with gr.Row():
             with gr.Column(scale=5):
-                dataset_path = gr.Textbox(label="Dataset Path")
+                dataset_path = gr.Dropdown(value="", choices=load_all_datasets(), label="Datasets")
             with gr.Column(scale=1):
-                load_btn = gr.Button(value="Load Dataset")
-            with gr.Column(scale=1):
-                tool_calls_index = gr.Dropdown(choices=[], label="Tool Calls Index")
+                load_btn = gr.Button(value="Refresh Dataset")
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -170,21 +180,27 @@ def create_replay_gradio_ui():
             reasoning = gr.Textbox(value="", label="Reasoning", interactive=True)
 
         with gr.Row():
+            # reasoning_edit_btn = gr.Button(value="Edit Reasoning")
             prev_btn = gr.Button(value="Prev Step")
             next_btn = gr.Button(value="Next Step")
             save_btn = gr.Button(value="Save")
-
         load_btn.click(
+            lambda: gr.Dropdown(choices=load_all_datasets(), value=""),
+            inputs=[],
+            outputs=[dataset_path],
+        )
+        dataset_path.change(
             load_dataset,
             inputs=dataset_path,
-            outputs=[tool_calls_index, image, action, reasoning, prompt_text_box],
+            outputs=[image, action, reasoning, prompt_text_box],
         )
         next_btn.click(
-            next_image, inputs=[tool_calls_index, reasoning], outputs=[image, action, reasoning]
+            next_image, inputs=[reasoning], outputs=[image, action, reasoning]
         )
         prev_btn.click(
-            prev_image, inputs=[tool_calls_index, reasoning], outputs=[image, action, reasoning]
+            prev_image, inputs=[reasoning], outputs=[image, action, reasoning]
         )
+        # reasoning_edit_btn.click(edit_reasoning, inputs=reasoning, outputs=[])
         save_btn.click(save_dataset, inputs=[dataset_path, prompt_text_box], outputs=[])
     return app
 
