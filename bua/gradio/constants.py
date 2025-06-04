@@ -1,14 +1,7 @@
 import os
 
-from interface.browser import BrowserComputerInterface
-from interface.models import Key
+from bua.interface.browser import BrowserComputerInterface
 
-VALID_KEYS = [key.value for key in Key]  + [
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-    'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
-]
-VALID_KEYS = list(dict.fromkeys(VALID_KEYS)) # remove duplicates, preserve order
 LANG = "English"
 OUTPUT_DIR = "examples/output"
 SESSION_DIR = os.path.join(OUTPUT_DIR, "sessions")

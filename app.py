@@ -1,7 +1,7 @@
 import gradio as gr
 
-from gradio.anno_app import create_gradio_ui
-from gradio.replay_app import create_replay_gradio_ui
+from bua.gradio.anno_app import create_gradio_ui
+from bua.gradio.replay_app import create_replay_gradio_ui
 
 main_app = create_gradio_ui()
 replay_app = create_replay_gradio_ui()

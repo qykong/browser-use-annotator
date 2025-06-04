@@ -5,8 +5,8 @@ import datasets
 import gradio as gr
 from PIL import Image, ImageDraw
 
-from gradio.constants import SESSION_DIR
-from gradio.utils import load_all_sessions
+from bua.gradio.constants import SESSION_DIR
+from bua.gradio.utils import load_all_sessions
 
 tool_calls_list: list[list[dict]] | None = None
 images_list: list[list[Image.Image]] | None = None

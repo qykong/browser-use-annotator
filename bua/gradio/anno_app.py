@@ -18,7 +18,7 @@ import pandas as pd
 from datasets import Dataset, Features, Sequence
 from PIL import Image
 
-from gradio.constants import (
+from bua.gradio.constants import (
     LANG,
     LANGUAGES,
     OUTPUT_DIR,
@@ -29,13 +29,13 @@ from gradio.constants import (
     screenshot_images,
     tool_call_logs,
 )
-from gradio.utils import (
+from bua.gradio.utils import (
     get_chatbot_messages,
     get_last_action_display,
     handle_reasoning_refinement,
     load_all_sessions,
 )
-from interface.browser import BrowserComputerInterface
+from bua.interface.browser import BrowserComputerInterface
 
 # Global session ID for tracking this run
 session_id = str(uuid.uuid4())
@@ -408,7 +408,7 @@ async def submit_message(message_text, role, screenshot_after=False):
 
 def create_gradio_ui():
     with gr.Blocks() as app:
-        gr.Markdown(f"# {LANGUAGES[LANG]["title"]}")
+        gr.Markdown(f"# {LANGUAGES[LANG]['title']}")
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -493,7 +493,7 @@ def create_gradio_ui():
                             )
                         with gr.Column(scale=1):
                             with gr.Row():
-                                input_text = gr.Textbox(label=LANGUAGES[LANG]["type_text"])
+                                input_text = gr.Textbox(show_label=False)
                                 press_enter_checkbox = gr.Checkbox(
                                     label=LANGUAGES[LANG]["press_enter"], value=False
                                 )

@@ -1,0 +1,14 @@
+[project]
+name = "browser-use-annotator"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets>=3.6.0",
+    "gradio>=5.32.0",
+    "loguru>=0.7.3",
+    "pillow>=11.2.1",
+    "playwright>=1.52.0",
+    "pydantic>=2.11.5",
+]

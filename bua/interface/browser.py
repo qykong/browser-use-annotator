@@ -5,13 +5,15 @@ import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
+import platform
+import os
 
 try:
     from playwright.async_api import ViewportSize, async_playwright
 except ImportError:
     raise ImportError(  # noqa: B904
         "Playwright is required for browser interface. "
-        "Install with: pip install playwright && playwright install chromium"
+        "Install with: pip install playwright && playwright install chrome"
     )
 
 visualize_click_position_js = """([x, y]) => {
@@ -67,9 +69,34 @@ class BrowserComputerInterface:
         self._playwright = None
         self._ready = False
         self.user_data_dir = user_data_dir
-        self.headless = headless
         self.context_args = context_args
         self.viewport = viewport
+        if self._detect_headless_environment():
+            self.headless = True
+        else:
+            self.headless = headless
+
+    def _detect_headless_environment(self) -> bool:
+        # Check if we're on Linux
+        if platform.system().lower() != "linux":
+            return False
+
+        # Check for common headless environment indicators
+        headless_indicators = [
+            # No DISPLAY environment variable
+            not os.environ.get("DISPLAY"),
+            # Common CI environment variables
+            os.environ.get("CI") == "true",
+            os.environ.get("GITHUB_ACTIONS") == "true",
+            os.environ.get("GITLAB_CI") == "true",
+            os.environ.get("JENKINS_URL") is not None,
+            # Docker environment
+            os.path.exists("/.dockerenv"),
+            # SSH session without X11 forwarding
+            os.environ.get("SSH_CLIENT") and not os.environ.get("DISPLAY"),
+        ]
+
+        return any(headless_indicators)
 
     async def _launch_browser(self):
         """Launch Chrome browser using Playwright."""
@@ -154,7 +181,9 @@ class BrowserComputerInterface:
             await self.visualize_click_position(x, y)
         await self._page.mouse.click(x, y)
 
-    async def right_click(self, x: Optional[int] = None, y: Optional[int] = None) -> None:
+    async def right_click(
+        self, x: Optional[int] = None, y: Optional[int] = None
+    ) -> None:
         """Perform a right click."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
@@ -179,7 +208,9 @@ class BrowserComputerInterface:
 
         await self._page.mouse.move(x, y)
 
-    async def drag_to(self, x: int, y: int, button: str = "left", duration: float = 0.5) -> None:
+    async def drag_to(
+        self, x: int, y: int, button: str = "left", duration: float = 0.5
+    ) -> None:
         """Drag from current position to specified coordinates."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
@@ -473,7 +504,9 @@ class BrowserComputerInterface:
         # For browser interface, screenshot and screen coordinates are the same
         return (x, y)
 
-    async def to_screenshot_coordinates(self, x: float, y: float) -> tuple[float, float]:
+    async def to_screenshot_coordinates(
+        self, x: float, y: float
+    ) -> tuple[float, float]:
         """Convert screen coordinates to screenshot coordinates.
 
         Args:
