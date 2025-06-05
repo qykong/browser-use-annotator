@@ -1,4 +1,5 @@
 import gradio as gr
+from gradio.themes import ThemeClass
 
 from bua.gradio.anno_app import create_gradio_ui
 from bua.gradio.replay_app import create_replay_gradio_ui
@@ -6,6 +7,7 @@ import subprocess
 import sys
 
 
+theme = ThemeClass.load('./static/theme_taithrah_minimal.json')
 # Check if Chrome is installed for Playwright, if not install it
 def ensure_playwright_chrome():
     try:
@@ -58,7 +60,7 @@ ensure_playwright_chrome()
 main_app = create_gradio_ui()
 replay_app = create_replay_gradio_ui()
 
-with gr.Blocks() as demo:
+with gr.Blocks(theme=theme) as demo:
     main_app.render()
 
 

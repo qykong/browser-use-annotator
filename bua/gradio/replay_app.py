@@ -173,7 +173,7 @@ def create_replay_gradio_ui():
     with gr.Blocks(theme=theme) as app:
         with gr.Row():
             with gr.Column(scale=5):
-                dataset_path = gr.Dropdown(value="", choices=load_all_datasets(), label="Datasets")
+                dataset_path = gr.Dropdown(value=None, choices=load_all_datasets(), label="Datasets")
             with gr.Column(scale=1):
                 load_btn = gr.Button(value="Refresh Dataset", variant="secondary")
 

@@ -516,6 +516,7 @@ def create_gradio_ui():
                             value=get_chatbot_messages,
                             label="Conversation",
                             elem_classes="chatbot",
+                            type="messages",
                             height=400,
                             sanitize_html=True,
                         )
