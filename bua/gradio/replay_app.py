@@ -4,6 +4,7 @@ import os
 import datasets
 import gradio as gr
 from PIL import Image, ImageDraw
+import gradio.themes as gr_themes
 
 from bua.gradio.constants import SESSION_DIR
 from bua.gradio.utils import load_all_sessions
@@ -162,13 +163,19 @@ def load_all_datasets():
     return [session["source_folder"] for session in sessions]
 
 def create_replay_gradio_ui():
-    with gr.Blocks() as app:
-        gr.Markdown("Replay App")
+    theme = gr_themes.Soft(
+        primary_hue=gr_themes.colors.slate,
+        secondary_hue=gr_themes.colors.gray,
+        neutral_hue=gr_themes.colors.stone,
+        text_size=gr_themes.sizes.text_md,
+        radius_size=gr_themes.sizes.radius_lg,
+    )
+    with gr.Blocks(theme=theme) as app:
         with gr.Row():
             with gr.Column(scale=5):
                 dataset_path = gr.Dropdown(value="", choices=load_all_datasets(), label="Datasets")
             with gr.Column(scale=1):
-                load_btn = gr.Button(value="Refresh Dataset")
+                load_btn = gr.Button(value="Refresh Dataset", variant="secondary")
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -181,9 +188,9 @@ def create_replay_gradio_ui():
 
         with gr.Row():
             # reasoning_edit_btn = gr.Button(value="Edit Reasoning")
-            prev_btn = gr.Button(value="Prev Step")
-            next_btn = gr.Button(value="Next Step")
-            save_btn = gr.Button(value="Save")
+            prev_btn = gr.Button(value="Prev Step", variant="secondary")
+            next_btn = gr.Button(value="Next Step", variant="secondary")
+            save_btn = gr.Button(value="Save", variant="primary")
         load_btn.click(
             lambda: gr.Dropdown(choices=load_all_datasets(), value=""),
             inputs=[],

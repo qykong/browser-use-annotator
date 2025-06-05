@@ -17,6 +17,7 @@ import gradio as gr
 import pandas as pd
 from datasets import Dataset, Features, Sequence
 from PIL import Image
+import gradio.themes as gr_themes
 
 from bua.gradio.constants import (
     LANG,
@@ -407,7 +408,14 @@ async def submit_message(message_text, role, screenshot_after=False):
 
 
 def create_gradio_ui():
-    with gr.Blocks() as app:
+    theme = gr_themes.Soft(
+        primary_hue=gr_themes.colors.slate,
+        secondary_hue=gr_themes.colors.gray,
+        neutral_hue=gr_themes.colors.stone,
+        text_size=gr_themes.sizes.text_md,
+        radius_size=gr_themes.sizes.radius_lg,
+    )
+    with gr.Blocks(theme=theme) as app:
         gr.Markdown(f"# {LANGUAGES[LANG]['title']}")
 
         with gr.Row():
@@ -420,7 +428,7 @@ def create_gradio_ui():
                         interactive=True,
                     )
                     with gr.Row():
-                        run_setup_btn = gr.Button(LANGUAGES[LANG]["run_task_setup"])
+                        run_setup_btn = gr.Button(LANGUAGES[LANG]["run_task_setup"], variant="primary")
 
                 with gr.Accordion(LANGUAGES[LANG]["reasoning_last_action"], open=False, visible=False):
                     with gr.Group():
@@ -437,8 +445,8 @@ def create_gradio_ui():
                         erroneous_checkbox = gr.Checkbox(
                             label=LANGUAGES[LANG]["mark_erroneous"], value=False
                         )
-                        reasoning_submit_btn = gr.Button(LANGUAGES[LANG]["submit_reasoning"])
-                        reasoning_refine_btn = gr.Button(LANGUAGES[LANG]["refine"])
+                        reasoning_submit_btn = gr.Button(LANGUAGES[LANG]["submit_reasoning"], variant="primary")
+                        reasoning_refine_btn = gr.Button(LANGUAGES[LANG]["refine"], variant="secondary")
                     reasoning_status = gr.Textbox(label=LANGUAGES[LANG]["status"], value="")
 
                 with gr.Accordion(LANGUAGES[LANG]["conversation_messages"], open=False):
@@ -453,17 +461,19 @@ def create_gradio_ui():
                     screenshot_after_msg = gr.Checkbox(
                         label=LANGUAGES[LANG]["screenshot_after_msg"], value=False
                     )
-                    message_submit_btn = gr.Button(LANGUAGES[LANG]["submit_message"])
+                    message_submit_btn = gr.Button(LANGUAGES[LANG]["submit_message"], variant="primary")
                     message_status = gr.Textbox(label=LANGUAGES[LANG]["message_status"], value="")
 
-                shutdown_btn = gr.Button(LANGUAGES[LANG]["shutdown_computer"])
+                shutdown_btn = gr.Button(LANGUAGES[LANG]["shutdown_computer"], variant="stop")
             with gr.Column(scale=3):
                 with gr.Group():
-                    with gr.Row():
-                        input_text_url = gr.Textbox(
-                            placeholder=LANGUAGES[LANG]["go_to_url"], show_label=False
-                        )
-                        submit_url_btn = gr.Button(LANGUAGES[LANG]["submit_url"])
+                    with gr.Row(equal_height=True):
+                        with gr.Column(scale=3):
+                            input_text_url = gr.Textbox(
+                                placeholder=LANGUAGES[LANG]["go_to_url"], show_label=False
+                            )
+                        with gr.Column(scale=1):
+                            submit_url_btn = gr.Button(LANGUAGES[LANG]["submit_url"], variant="primary")
 
                     img = gr.Image(
                         type="pil",
@@ -472,10 +482,10 @@ def create_gradio_ui():
                         interactive=False,
                     )
                     with gr.Row():
-                        wait_btn = gr.Button(LANGUAGES[LANG]["wait"])
-                        scroll_up_btn = gr.Button(LANGUAGES[LANG]["scroll_up"])
-                        scroll_down_btn = gr.Button(LANGUAGES[LANG]["scroll_down"])
-                    with gr.Row():
+                        wait_btn = gr.Button(LANGUAGES[LANG]["wait"], variant="secondary")
+                        scroll_up_btn = gr.Button(LANGUAGES[LANG]["scroll_up"], variant="secondary")
+                        scroll_down_btn = gr.Button(LANGUAGES[LANG]["scroll_down"], variant="secondary")
+                    with gr.Row(equal_height=True):
                         with gr.Column(scale=3):
                             # Click type selection
                             click_type = gr.Radio(
@@ -493,11 +503,11 @@ def create_gradio_ui():
                             )
                         with gr.Column(scale=1):
                             with gr.Row():
-                                input_text = gr.Textbox(show_label=False)
+                                input_text = gr.Textbox(show_label=False, placeholder=LANGUAGES[LANG]["input_text_placeholder"])
                                 press_enter_checkbox = gr.Checkbox(
                                     label=LANGUAGES[LANG]["press_enter"], value=False
                                 )
-                            submit_text_btn = gr.Button(LANGUAGES[LANG]["submit_text"])
+                            submit_text_btn = gr.Button(LANGUAGES[LANG]["submit_text"], variant="primary")
 
                 # Tabbed logs: Tool logs, Conversational logs, and Demonstrations
                 with gr.Tabs() as logs_tabs:
@@ -507,14 +517,12 @@ def create_gradio_ui():
                             label="Conversation",
                             elem_classes="chatbot",
                             height=400,
-                            type="messages",
                             sanitize_html=True,
-                            allow_tags=True,
                         )
                     with gr.TabItem(LANGUAGES[LANG]["function_logs"], visible=False):
                         with gr.Group():
                             action_log = gr.JSON(label=LANGUAGES[LANG]["function_logs"], every=0.2)
-                            clear_log_btn = gr.Button(LANGUAGES[LANG]["clear_log"])
+                            clear_log_btn = gr.Button(LANGUAGES[LANG]["clear_log"], variant="secondary")
                     with gr.TabItem(LANGUAGES[LANG]["save_share_demos"]):
                         with gr.Row():
                             with gr.Column(scale=3):
@@ -522,9 +530,7 @@ def create_gradio_ui():
                                 dataset_viewer = gr.DataFrame(
                                     label=LANGUAGES[LANG]["all_sessions"],
                                     value=get_sessions_data,
-                                    show_search="filter",
-                                    max_height=300,
-                                    interactive=True,  # Make it interactive for selection
+                                    interactive=True,
                                 )
 
                             with gr.Column(scale=1):
@@ -536,7 +542,7 @@ def create_gradio_ui():
                                         placeholder=LANGUAGES[LANG]["demo_name_placeholder"],
                                     )
 
-                                    save_btn = gr.Button(LANGUAGES[LANG]["save_current_session"])
+                                    save_btn = gr.Button(LANGUAGES[LANG]["save_current_session"], variant="primary")
                                 save_status = gr.Textbox(label=LANGUAGES[LANG]["save_status"], value="")
 
         # Handle save button

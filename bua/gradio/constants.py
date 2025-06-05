@@ -92,6 +92,7 @@ LANGUAGES = {
         "current_task_placeholder": "Enter current task here...",
         "triple_click": "Triple Click",
         "message_editor": "Message Editor",
+        "input_text_placeholder": "Enter text here to type into the browser...",
     },
     "中文": {
         "title": "浏览器操作标注工具",
@@ -170,6 +171,7 @@ LANGUAGES = {
         "current_task_placeholder": "在此输入当前任务...",
         "triple_click": "三击",
         "message_editor": "消息编辑器",
+        "input_text_placeholder": "在此输入文字以输入浏览器...",
     }
 }
 
