@@ -71,6 +71,8 @@ class BrowserComputerInterface:
         self.user_data_dir = user_data_dir
         self.context_args = context_args
         self.viewport = viewport
+        self._redirect_in_progress = False
+        self._redirect_promise = None
         if self._detect_headless_environment():
             self.headless = True
         else:
@@ -114,13 +116,61 @@ class BrowserComputerInterface:
                 args=self.context_args,
                 viewport=self.viewport,
             )
-            # Create a new page with viewport
+
+            # Create the very first page – this becomes the single “main” tab
             self._page = await self._browser.new_page()
+
+            # Helper: redirect a newly opened page into the main one, then close
+            async def _redirect_to_main(new_page):
+                """Grab URL from popup and load it in the main page."""
+                try:
+                    # Mark redirect as in progress
+                    self._redirect_in_progress = True
+                    
+                    # Wait until we have at least DOMContentLoaded so .url is final
+                    await new_page.wait_for_load_state("domcontentloaded")
+                    target_url = new_page.url
+
+                    # Close the unwanted tab/window
+                    await new_page.close()
+
+                    # Navigate the primary page if we have something to show
+                    if self._page and target_url and target_url != "about:blank":
+                        await self._page.goto(target_url)
+                        
+                        # Fast redirect: only wait for DOM content to be loaded
+                        # Full loading will be ensured in screenshot method if needed
+                        try:
+                            await self._page.wait_for_load_state("domcontentloaded", timeout=3000)
+                        except Exception:
+                            logger.debug("DOMContentLoaded timeout during redirect")
+                        
+                        logger.debug(f"Redirected popup to main tab: {target_url}")
+                        
+                    # Mark redirect as completed
+                    self._redirect_in_progress = False
+                    if self._redirect_promise:
+                        self._redirect_promise.set_result(True)
+                        self._redirect_promise = None
+                        
+                except Exception as e:
+                    logger.warning(f"Popup redirection failed: {e}")
+                    # Ensure we mark redirect as completed even on error
+                    self._redirect_in_progress = False
+                    if self._redirect_promise:
+                        self._redirect_promise.set_exception(e)
+                        self._redirect_promise = None
+            
+            # ---------------------------- Listeners ----------------------------
+            # 1. Any page created at the *context* level (target="_blank", ctrl+click)
+            self._browser.on("page", lambda p: asyncio.create_task(_redirect_to_main(p)))
+            # 2. Any popup created by window.open() from *this* page
+            self._page.on("popup", lambda p: asyncio.create_task(_redirect_to_main(p)))
 
             await self._page.goto("about:blank")
 
+            self._ready = True  
             logger.info("Chrome browser launched successfully")
-            self._ready = True
         except Exception as e:
             logger.exception("")
             logger.error(f"Failed to launch browser: {e}")
@@ -158,6 +208,10 @@ class BrowserComputerInterface:
             self._page = None
             self._browser = None
             self._playwright = None
+            self._redirect_in_progress = False
+            if self._redirect_promise:
+                self._redirect_promise.cancel()
+                self._redirect_promise = None
 
     def force_close(self) -> None:
         """Force close the browser connection."""
@@ -168,6 +222,29 @@ class BrowserComputerInterface:
         if not self._page:
             raise RuntimeError("Browser not initialized")
         await self._page.evaluate(visualize_click_position_js, [x, y])
+    
+    async def _wait_for_redirect_completion(self, timeout: float = 5.0) -> None:
+        """Wait for any ongoing redirect to complete."""
+        if not self._redirect_in_progress:
+            return
+            
+        if self._redirect_promise is None:
+            self._redirect_promise = asyncio.Future()
+            
+        try:
+            await asyncio.wait_for(self._redirect_promise, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.debug(f"Redirect completion wait timed out after {timeout}s")
+            # Reset the state
+            self._redirect_in_progress = False
+            if self._redirect_promise:
+                self._redirect_promise.cancel()
+                self._redirect_promise = None
+        except Exception as e:
+            logger.debug(f"Redirect completion wait failed: {e}")
+            # Reset the state
+            self._redirect_in_progress = False
+            self._redirect_promise = None
 
     # Mouse Actions
     async def left_click(
@@ -382,6 +459,27 @@ class BrowserComputerInterface:
         if not self._page:
             raise RuntimeError("Browser not initialized")
 
+        # Ensure any ongoing redirects are completed before taking screenshot
+        await self._wait_for_redirect_completion()
+        
+        # Ensure the page is fully loaded before taking screenshot
+        try:
+            # Wait for all resources including images, stylesheets, scripts
+            await self._page.wait_for_load_state("load", timeout=8000)
+        except Exception:
+            try:
+                # Fallback: wait for network to be idle
+                await self._page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                try:
+                    # Final fallback: at least DOM should be loaded
+                    await self._page.wait_for_load_state("domcontentloaded", timeout=3000)
+                except Exception:
+                    logger.debug("All load state waits timed out, proceeding with screenshot")
+        
+        # Additional wait for dynamic content and rendering
+        await asyncio.sleep(1)
+        
         screenshot_bytes = await self._page.screenshot()
         return screenshot_bytes
 
