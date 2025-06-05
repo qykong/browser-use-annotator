@@ -35,6 +35,7 @@ from bua.gradio.utils import (
     get_last_action_display,
     handle_reasoning_refinement,
     load_all_sessions,
+    ensure_url_protocol,
 )
 from bua.interface.browser import BrowserComputerInterface
 
@@ -331,6 +332,7 @@ async def handle_go_to_url(url):
     if computer is None or not url:
         return await handle_screenshot(), json.dumps(tool_call_logs, indent=2)
 
+    url = ensure_url_protocol(url)
     result = await execute("computer", "go_to_url", {"url": url})
 
     return result["screenshot"], json.dumps(tool_call_logs, indent=2)

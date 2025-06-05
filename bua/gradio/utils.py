@@ -204,3 +204,19 @@ async def handle_text_refinement():
 # Define async wrapper functions for each refine button
 async def handle_reasoning_refinement(reasoning, task):
     return await handle_text_refinement(reasoning, "reasoning", task, use_before=True)
+
+
+def ensure_url_protocol(raw_url, default_protocol = "https"):
+    """Ensure the url has a protocol"""
+    if not raw_url:
+        return raw_url
+
+    # Strip whitespace
+    url = raw_url.strip()
+
+    # Check if URL already has a protocol
+    if url.startswith(("http://", "https://", "ftp://")):
+        return url
+
+    # Add default protocol if none exists
+    return f"{default_protocol}://{url}"
