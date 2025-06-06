@@ -10,8 +10,6 @@ from gradio.components import ChatMessage
 from bua.gradio.constants import (
     SESSION_DIR,
     last_action,
-    last_screenshot,
-    last_screenshot_before,
     title_mappings,
     tool_call_logs,
 )
@@ -28,7 +26,6 @@ def get_chatbot_messages(logs=None):
     """
     formatted_messages = []
 
-    # Use provided logs if specified, otherwise use global tool_call_logs
     logs_to_process = logs if logs is not None else tool_call_logs
 
     for tool_call in logs_to_process:

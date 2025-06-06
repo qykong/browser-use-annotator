@@ -8,13 +8,11 @@ import sys
 
 
 theme = ThemeClass.load('./static/theme_taithrah_minimal.json')
-# Check if Chrome is installed for Playwright, if not install it
+
 def ensure_playwright_chrome():
     try:
-        # Check if playwright command exists
         subprocess.run(["playwright", "--version"], capture_output=True, check=True)
 
-        # Check what browsers are available
         result = subprocess.run(
             ["playwright", "install", "--dry-run"],
             capture_output=True,
@@ -22,12 +20,10 @@ def ensure_playwright_chrome():
             check=False,
         )
 
-        # If dry-run succeeds and doesn't mention chrome needing installation, we're good
         if result.returncode == 0 and "chrome" not in result.stdout.lower():
             print("Chrome for Playwright is already available.")
             return
 
-        # Try normal installation
         install_result = subprocess.run(
             ["playwright", "install", "chrome"],
             capture_output=True,
@@ -53,7 +49,6 @@ def ensure_playwright_chrome():
         sys.exit(1)
 
 
-# Run the installation check
 ensure_playwright_chrome()
 
 

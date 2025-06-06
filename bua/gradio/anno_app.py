@@ -329,9 +329,11 @@ async def handle_type(text, press_enter=False):
 async def handle_go_to_url(url):
     """Go to a URL"""
     global computer
-    if computer is None or not url:
+    if not url:
         return await handle_screenshot(), json.dumps(tool_call_logs, indent=2)
 
+    if computer is None:
+        await handle_init_computer()
     url = ensure_url_protocol(url)
     result = await execute("computer", "go_to_url", {"url": url})
 
@@ -375,8 +377,8 @@ async def update_reasoning(reasoning_text, is_erroneous=False):
 async def clear_log():
     """Clear the tool call logs"""
     global tool_call_logs, screenshot_images
-    screenshot_images = []
-    tool_call_logs = []
+    screenshot_images.clear()
+    tool_call_logs.clear()
     return json.dumps(tool_call_logs, indent=2)
 
 
@@ -466,6 +468,7 @@ def create_gradio_ui():
                     message_submit_btn = gr.Button(LANGUAGES[LANG]["submit_message"], variant="primary")
                     message_status = gr.Textbox(label=LANGUAGES[LANG]["message_status"], value="")
 
+                clear_log_btn = gr.Button(LANGUAGES[LANG]["clear_log"], variant="secondary")
                 shutdown_btn = gr.Button(LANGUAGES[LANG]["shutdown_computer"], variant="stop")
             with gr.Column(scale=3):
                 with gr.Group():
@@ -525,7 +528,6 @@ def create_gradio_ui():
                     with gr.TabItem(LANGUAGES[LANG]["function_logs"], visible=False):
                         with gr.Group():
                             action_log = gr.JSON(label=LANGUAGES[LANG]["function_logs"], every=0.2)
-                            clear_log_btn = gr.Button(LANGUAGES[LANG]["clear_log"], variant="secondary")
                     with gr.TabItem(LANGUAGES[LANG]["save_share_demos"]):
                         with gr.Row():
                             with gr.Column(scale=3):
@@ -562,7 +564,8 @@ def create_gradio_ui():
         async def run_task_setup(task_text):
             global computer
 
-            await handle_init_computer()
+            if computer is None:
+                await handle_init_computer()
 
             _, _, logs_json, screenshot = await submit_message(
                 task_text, "user", screenshot_after=True
