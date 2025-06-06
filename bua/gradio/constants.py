@@ -25,7 +25,7 @@ LANGUAGES = {
         "conversational_logs": "Conversational Logs",
         "function_logs": "Function Logs",
         "clear_log": "Clear Log",
-        "save_share_demos": "Save/Share Demonstrations",
+        "save_share_demos": "Save Trajectory",
         "all_sessions": "All Sessions",
         "upload_sessions_hf": "Upload Sessions to HuggingFace",
         "hf_dataset_name": "HuggingFace Dataset Name",
