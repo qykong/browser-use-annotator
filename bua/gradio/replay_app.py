@@ -3,7 +3,7 @@ import os
 
 import datasets
 import gradio as gr
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 import gradio.themes as gr_themes
 
 from bua.gradio.constants import SESSION_DIR

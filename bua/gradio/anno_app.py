@@ -486,6 +486,7 @@ def create_gradio_ui():
                         show_label=False,
                         interactive=False,
                     )
+                with gr.Group():
                     with gr.Row():
                         wait_btn = gr.Button(LANGUAGES[LANG]["wait"], variant="secondary")
                         scroll_up_btn = gr.Button(LANGUAGES[LANG]["scroll_up"], variant="secondary")
@@ -514,7 +515,6 @@ def create_gradio_ui():
                                 )
                             submit_text_btn = gr.Button(LANGUAGES[LANG]["submit_text"], variant="primary")
 
-                # Tabbed logs: Tool logs, Conversational logs, and Demonstrations
                 with gr.Tabs() as logs_tabs:
                     with gr.TabItem(LANGUAGES[LANG]["conversational_logs"]):
                         chat_log = gr.Chatbot(
