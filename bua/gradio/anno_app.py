@@ -452,8 +452,8 @@ def create_gradio_ui():
         session_state = gr.BrowserState(
             "", storage_key="annotation_app", secret="annotation_app"
         )
-
         gr.Markdown(f"# {LANGUAGES[LANG]['title']}")
+        gr.Markdown("🌟 **[Star us on GitHub](https://github.com/qykong/browser-use-annotator)** to support this project!")
 
         with gr.Row():
             with gr.Column(scale=1):
