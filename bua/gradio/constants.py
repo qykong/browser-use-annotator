@@ -1,17 +1,64 @@
 import os
+import random
+import string
 
 from bua.interface.browser import BrowserComputerInterface
 
 LANG = "English"
 OUTPUT_DIR = "examples/output"
 SESSION_DIR = os.path.join(OUTPUT_DIR, "sessions")
-computer: BrowserComputerInterface | None = None
-tool_call_logs = []
-memory = ""
-last_action = {"name": "", "action": "", "arguments": {}}
-last_screenshot = None  # Store the most recent screenshot
-last_screenshot_before = None  # Store the most [-2]th recent screenshot
-screenshot_images = []  # Array to store all screenshot images
+
+# Session-specific state dictionaries (indexed by session_id)
+computers = {}  # session_id -> BrowserComputerInterface | None
+tool_call_logs = {}  # session_id -> list
+memory = {}  # session_id -> str
+last_actions = {}  # session_id -> dict
+last_screenshots = {}  # session_id -> image | None
+last_screenshots_before = {}  # session_id -> image | None
+screenshot_images = {}  # session_id -> list
+
+
+def generate_session_id():
+    """Generate a random session ID"""
+    return "".join(random.choices(string.ascii_letters + string.digits, k=16))
+
+
+def get_session_dir(session_id):
+    """Get the session-specific directory"""
+    return os.path.join(SESSION_DIR, session_id)
+
+
+def initialize_session(session_id):
+    """Initialize all session-specific state for a new session"""
+    if session_id not in computers:
+        computers[session_id] = None
+        tool_call_logs[session_id] = []
+        memory[session_id] = ""
+        last_actions[session_id] = {"name": "", "action": "", "arguments": {}}
+        last_screenshots[session_id] = None
+        last_screenshots_before[session_id] = None
+        screenshot_images[session_id] = []
+
+        # Create session-specific directory
+        session_dir = get_session_dir(session_id)
+        if not os.path.exists(session_dir):
+            os.makedirs(session_dir)
+
+
+def cleanup_session(session_id):
+    """Clean up session-specific state when session ends"""
+    # Close computer interface if it exists
+    if session_id in computers and computers[session_id] is not None:
+        computers[session_id].close()
+
+    # Remove from all dictionaries
+    computers.pop(session_id, None)
+    tool_call_logs.pop(session_id, None)
+    memory.pop(session_id, None)
+    last_actions.pop(session_id, None)
+    last_screenshots.pop(session_id, None)
+    last_screenshots_before.pop(session_id, None)
+    screenshot_images.pop(session_id, None)
 
 
 LANGUAGES = {
@@ -20,7 +67,7 @@ LANGUAGES = {
         "current_screenshot": "Current Screenshot",
         "click_type": "Click Type",
         "wait": "WAIT",
-        "done": "DONE", 
+        "done": "DONE",
         "fail": "FAIL",
         "conversational_logs": "Conversational Logs",
         "function_logs": "Function Logs",
@@ -100,7 +147,7 @@ LANGUAGES = {
         "click_type": "点击类型",
         "wait": "等待",
         "done": "完成",
-        "fail": "失败", 
+        "fail": "失败",
         "conversational_logs": "对话日志",
         "function_logs": "功能日志",
         "clear_log": "清除日志",
@@ -172,27 +219,26 @@ LANGUAGES = {
         "triple_click": "三击",
         "message_editor": "消息编辑器",
         "input_text_placeholder": "在此输入文字以输入浏览器...",
-    }
+    },
 }
 
 title_mappings = {
-                "wait": "⏳ Waiting...",
-                "done": "✅ Task Completed",
-                "fail": "❌ Task Failed",
-                "memory.update": "🧠 Memory Updated",
-                "screenshot": "📸 Taking Screenshot",
-                "move_cursor": "🖱️ Moving Cursor",
-                "left_click": "🖱️ Left Click",
-                "right_click": "🖱️ Right Click",
-                "double_click": "🖱️ Double Click",
-                "type_text": "⌨️ Typing Text",
-                "press_key": "⌨️ Pressing Key",
-                "send_hotkey": "⌨️ Sending Hotkey",
-                "copy_to_clipboard": "📋 Copying to Clipboard",
-                "set_clipboard": "📋 Setting Clipboard",
-                "run_command": "🖥️ Running Shell Command",
-                "initialize": "🚀 Initializing Computer",
-                "shutdown": "🛑 Shutting Down",
-                "triple_click": "🖱️ Triple Click"
-            }
-
+    "wait": "⏳ Waiting...",
+    "done": "✅ Task Completed",
+    "fail": "❌ Task Failed",
+    "memory.update": "🧠 Memory Updated",
+    "screenshot": "📸 Taking Screenshot",
+    "move_cursor": "🖱️ Moving Cursor",
+    "left_click": "🖱️ Left Click",
+    "right_click": "🖱️ Right Click",
+    "double_click": "🖱️ Double Click",
+    "type_text": "⌨️ Typing Text",
+    "press_key": "⌨️ Pressing Key",
+    "send_hotkey": "⌨️ Sending Hotkey",
+    "copy_to_clipboard": "📋 Copying to Clipboard",
+    "set_clipboard": "📋 Setting Clipboard",
+    "run_command": "🖥️ Running Shell Command",
+    "initialize": "🚀 Initializing Computer",
+    "shutdown": "🛑 Shutting Down",
+    "triple_click": "🖱️ Triple Click",
+}

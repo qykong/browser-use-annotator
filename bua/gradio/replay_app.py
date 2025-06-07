@@ -2,21 +2,35 @@ import json
 import os
 
 import datasets
-import gradio as gr
 from PIL import Image, ImageDraw
-import gradio.themes as gr_themes
 
-from bua.gradio.constants import SESSION_DIR
+import gradio as gr
+import gradio.themes as gr_themes
+from bua.gradio.constants import generate_session_id, get_session_dir
 from bua.gradio.utils import load_all_sessions
 
-tool_calls_list: list[list[dict]] | None = None
-images_list: list[list[Image.Image]] | None = None
-dataset: datasets.Dataset | datasets.DatasetDict | None = None
-current_image_index = 2
-current_tool_call_index = 2
-prompt_text = ""
-tool_calls_index = 0
-prompt_text_idx = 0
+# Session-specific state dictionaries (indexed by session_id)
+tool_calls_list = {}  # session_id -> list[list[dict]] | None
+images_list = {}  # session_id -> list[list[Image.Image]] | None
+dataset = {}  # session_id -> datasets.Dataset | datasets.DatasetDict | None
+current_image_index = {}  # session_id -> int
+current_tool_call_index = {}  # session_id -> int
+prompt_text = {}  # session_id -> str
+tool_calls_index = {}  # session_id -> int
+prompt_text_idx = {}  # session_id -> int
+
+
+def initialize_replay_session(session_id):
+    """Initialize all session-specific state for replay app"""
+    if session_id not in tool_calls_list:
+        tool_calls_list[session_id] = None
+        images_list[session_id] = None
+        dataset[session_id] = None
+        current_image_index[session_id] = 2
+        current_tool_call_index[session_id] = 2
+        prompt_text[session_id] = ""
+        tool_calls_index[session_id] = 0
+        prompt_text_idx[session_id] = 0
 
 
 def plot_dot_to_image(prev_image, result_image, action):
@@ -67,7 +81,9 @@ def plot_dot_to_image(prev_image, result_image, action):
     # Draw labels
     draw_combined = ImageDraw.Draw(combined)
 
-    draw_combined.text((width // 2 - 60, 5), "Before Action", fill="black", font_size=20)
+    draw_combined.text(
+        (width // 2 - 60, 5), "Before Action", fill="black", font_size=20
+    )
     draw_combined.text(
         (width + width // 2 - 60, 5), "After Action", fill="black", font_size=20
     )
@@ -80,19 +96,20 @@ def plot_dot_to_image(prev_image, result_image, action):
     # Border for before image
     draw_combined.rectangle(
         [0, label_height, width - 1, label_height + height - 1],
-        outline="black", width=border_width
+        outline="black",
+        width=border_width,
     )
     # Border for after image
     draw_combined.rectangle(
         [width, label_height, width * 2 - 1, label_height + height - 1],
-        outline="black", width=border_width
+        outline="black",
+        width=border_width,
     )
 
     return combined
 
 
-def plot_image(prev_image, image, tool_calls, image_index):
-    global current_tool_call_index
+def plot_image(prev_image, image, tool_calls, image_index, session_id):
     action = None
     reasoning = ""
     for i, tool_call in enumerate(tool_calls):
@@ -108,134 +125,156 @@ def plot_image(prev_image, image, tool_calls, image_index):
             action = tool_call["arguments"]
             if "reasoning" in tool_call:
                 reasoning = tool_call["reasoning"]
-            current_tool_call_index = i
+            current_tool_call_index[session_id] = i
             break
     return image, action, reasoning
 
 
-def load_dataset(dataset_path):
-    dataset_path = os.path.join(SESSION_DIR, dataset_path)
-    global \
-        tool_calls_list, \
-        images_list, \
-        current_image_index, \
-        dataset, \
-        prompt_text, \
-        prompt_text_idx
-    dataset = datasets.load_from_disk(dataset_path)
-    tool_calls_list = [json.loads(str(data)) for data in dataset["tool_calls"]]
-    images_list = dataset["images"]
+def load_dataset(session_id, dataset_path):
+    dataset_path = os.path.join(get_session_dir(session_id), dataset_path)
+
+    # Initialize session if needed
+    initialize_replay_session(session_id)
+
+    dataset[session_id] = datasets.load_from_disk(dataset_path)
+    tool_calls_list[session_id] = [
+        json.loads(str(data)) for data in dataset[session_id]["tool_calls"]
+    ]
+    images_list[session_id] = dataset[session_id]["images"]
+
     image, action, reasoning = plot_image(
-        images_list[0][current_image_index - 1] if current_image_index > 0 else None,
-        images_list[0][current_image_index],
-        tool_calls_list[0],
-        current_image_index,
+        images_list[session_id][0][current_image_index[session_id] - 1]
+        if current_image_index[session_id] > 0
+        else None,
+        images_list[session_id][0][current_image_index[session_id]],
+        tool_calls_list[session_id][0],
+        current_image_index[session_id],
+        session_id,
     )
 
-    for i, tool_call in enumerate(tool_calls_list[0]):
+    for i, tool_call in enumerate(tool_calls_list[session_id][0]):
         print(tool_call)
         if json.loads(tool_call["arguments"])["action"] == "submit":
-            prompt_text = json.loads(tool_call["arguments"])["text"]
-            prompt_text_idx = i
+            prompt_text[session_id] = json.loads(tool_call["arguments"])["text"]
+            prompt_text_idx[session_id] = i
             break
 
     return (
         image,
         action,
         reasoning,
-        prompt_text,
+        prompt_text[session_id],
     )
 
 
-def next_image(reasoning_text):
-    global \
-        tool_calls_list, \
-        images_list, \
-        current_image_index, \
-        current_tool_call_index, \
-        tool_calls_index
+def next_image(session_id, reasoning_text):
+    # Initialize session if needed
+    initialize_replay_session(session_id)
 
     # Save current reasoning if there are any updates
-    if tool_calls_list is not None and reasoning_text.strip():
-        tool_calls_list[tool_calls_index][current_tool_call_index]["reasoning"] = (
-            reasoning_text
-        )
+    if tool_calls_list[session_id] is not None and reasoning_text.strip():
+        tool_calls_list[session_id][tool_calls_index[session_id]][
+            current_tool_call_index[session_id]
+        ]["reasoning"] = reasoning_text
 
-    current_image_index += 1
-    if current_image_index >= len(images_list[tool_calls_index]):
+    current_image_index[session_id] += 1
+    if current_image_index[session_id] >= len(
+        images_list[session_id][tool_calls_index[session_id]]
+    ):
         gr.Info("No more next images!")
-        current_image_index -= 1
-    assert images_list is not None and tool_calls_list is not None
+        current_image_index[session_id] -= 1
+    assert (
+        images_list[session_id] is not None and tool_calls_list[session_id] is not None
+    )
     image, action, reasoning = plot_image(
-        images_list[0][current_image_index - 1] if current_image_index > 0 else None,
-        images_list[tool_calls_index][current_image_index],
-        tool_calls_list[tool_calls_index],
-        current_image_index,
+        images_list[session_id][0][current_image_index[session_id] - 1]
+        if current_image_index[session_id] > 0
+        else None,
+        images_list[session_id][tool_calls_index[session_id]][
+            current_image_index[session_id]
+        ],
+        tool_calls_list[session_id][tool_calls_index[session_id]],
+        current_image_index[session_id],
+        session_id,
     )
     return image, action, reasoning
 
 
-def prev_image(reasoning_text):
-    global \
-        tool_calls_list, \
-        images_list, \
-        current_image_index, \
-        current_tool_call_index, \
-        tool_calls_index
+def prev_image(session_id, reasoning_text):
+    # Initialize session if needed
+    initialize_replay_session(session_id)
 
     # Save current reasoning if there are any updates
-    if tool_calls_list is not None and reasoning_text.strip():
-        tool_calls_list[tool_calls_index][current_tool_call_index]["reasoning"] = (
-            reasoning_text
-        )
+    if tool_calls_list[session_id] is not None and reasoning_text.strip():
+        tool_calls_list[session_id][tool_calls_index[session_id]][
+            current_tool_call_index[session_id]
+        ]["reasoning"] = reasoning_text
 
-    current_image_index -= 1
-    if current_image_index < 0:
+    current_image_index[session_id] -= 1
+    if current_image_index[session_id] < 0:
         gr.Info("No more previous images!")
-        current_image_index += 1
-    assert images_list is not None and tool_calls_list is not None
+        current_image_index[session_id] += 1
+    assert (
+        images_list[session_id] is not None and tool_calls_list[session_id] is not None
+    )
     image, action, reasoning = plot_image(
-        images_list[0][current_image_index - 1] if current_image_index > 0 else None,
-        images_list[tool_calls_index][current_image_index],
-        tool_calls_list[tool_calls_index],
-        current_image_index,
+        images_list[session_id][0][current_image_index[session_id] - 1]
+        if current_image_index[session_id] > 0
+        else None,
+        images_list[session_id][tool_calls_index[session_id]][
+            current_image_index[session_id]
+        ],
+        tool_calls_list[session_id][tool_calls_index[session_id]],
+        current_image_index[session_id],
+        session_id,
     )
     return image, action, reasoning
 
 
-def edit_reasoning(reasoning):
-    global tool_calls_list, current_tool_call_index
-    assert tool_calls_list is not None
-    tool_calls_list[0][current_tool_call_index]["reasoning"] = reasoning
+def edit_reasoning(session_id, reasoning):
+    # Initialize session if needed
+    initialize_replay_session(session_id)
+
+    assert tool_calls_list[session_id] is not None
+    tool_calls_list[session_id][0][current_tool_call_index[session_id]]["reasoning"] = (
+        reasoning
+    )
     gr.Info("Editing is done!")
 
 
-def save_dataset(dataset_path, prompt_text_box_value):
-    dataset_path = os.path.join(SESSION_DIR, dataset_path)
-    global tool_calls_list, images_list, dataset, prompt_text_idx
+def save_dataset(session_id, dataset_path, prompt_text_box_value):
+    dataset_path = os.path.join(get_session_dir(session_id), dataset_path)
+
+    # Initialize session if needed
+    initialize_replay_session(session_id)
+
     assert (
-        tool_calls_list is not None and images_list is not None and dataset is not None
+        tool_calls_list[session_id] is not None
+        and images_list[session_id] is not None
+        and dataset[session_id] is not None
     )
 
-    if prompt_text_box_value != prompt_text:
+    if prompt_text_box_value != prompt_text[session_id]:
         gr.Info("Prompt text is changed, saving...")
-        prompt_tool_args = json.loads(tool_calls_list[0][prompt_text_idx]["arguments"])
+        prompt_tool_args = json.loads(
+            tool_calls_list[session_id][0][prompt_text_idx[session_id]]["arguments"]
+        )
         prompt_tool_args["text"] = prompt_text_box_value
-        tool_calls_list[0][1]["arguments"] = json.dumps(prompt_tool_args)
+        tool_calls_list[session_id][0][1]["arguments"] = json.dumps(prompt_tool_args)
     # Create a new dataset with updated tool_calls
     updated_data = {
-        "tool_calls": [json.dumps(tool_call) for tool_call in tool_calls_list],
-        "images": images_list,
+        "tool_calls": [
+            json.dumps(tool_call) for tool_call in tool_calls_list[session_id]
+        ],
+        "images": images_list[session_id],
     }
     updated_dataset = datasets.Dataset.from_dict(updated_data)
     updated_dataset.save_to_disk(dataset_path)
     gr.Info("Dataset saved successfully!")
 
 
-def load_all_datasets():
-    sessions = load_all_sessions()
-    if sessions is None:
-        return []
+def load_all_datasets(session_id):
+    sessions = load_all_sessions(session_id=session_id)
     return [session["source_folder"] for session in sessions]
 
 
@@ -248,11 +287,13 @@ def create_replay_gradio_ui():
         radius_size=gr_themes.sizes.radius_lg,
     )
     with gr.Blocks(theme=theme) as app:
+        session_state = gr.BrowserState(
+            "", storage_key="annotation_app", secret="annotation_app"
+        )
+
         with gr.Row():
             with gr.Column(scale=5):
-                dataset_path = gr.Dropdown(
-                    value=None, choices=load_all_datasets(), label="Datasets"
-                )
+                dataset_path = gr.Dropdown(choices=[], label="Datasets")
             with gr.Column(scale=1):
                 load_btn = gr.Button(value="Refresh Dataset", variant="secondary")
 
@@ -270,24 +311,60 @@ def create_replay_gradio_ui():
             prev_btn = gr.Button(value="Prev Step", variant="secondary")
             next_btn = gr.Button(value="Next Step", variant="secondary")
             save_btn = gr.Button(value="Save", variant="primary")
+
+        # Session initialization on app load
+        @app.load(inputs=[session_state], outputs=[session_state, dataset_path])
+        def initialize_session_on_load(session_id):
+            """Initialize session when app loads"""
+            if session_id == "":
+                session_id = generate_session_id()
+            print(f"Initializing replay session {session_id}")
+            initialize_replay_session(session_id)
+            return session_id, gr.Dropdown(choices=load_all_datasets(session_id))
+
+        # Wrapper functions to handle session state
+        def load_dataset_wrapper(session_id, dataset_path):
+            if not dataset_path:
+                return None, "", "", ""
+            return load_dataset(session_id, dataset_path)
+
+        def next_image_wrapper(session_id, reasoning_text):
+            return next_image(session_id, reasoning_text)
+
+        def prev_image_wrapper(session_id, reasoning_text):
+            return prev_image(session_id, reasoning_text)
+
+        def save_dataset_wrapper(session_id, dataset_path, prompt_text_box_value):
+            if not dataset_path:
+                return
+            return save_dataset(session_id, dataset_path, prompt_text_box_value)
+
         load_btn.click(
-            lambda: gr.Dropdown(choices=load_all_datasets(), value=""),
-            inputs=[],
+            lambda session_id: gr.Dropdown(choices=load_all_datasets(session_id)),
+            inputs=[session_state],
             outputs=[dataset_path],
         )
         dataset_path.change(
-            load_dataset,
-            inputs=dataset_path,
+            load_dataset_wrapper,
+            inputs=[session_state, dataset_path],
             outputs=[image, action, reasoning, prompt_text_box],
         )
         next_btn.click(
-            next_image, inputs=[reasoning], outputs=[image, action, reasoning]
+            next_image_wrapper,
+            inputs=[session_state, reasoning],
+            outputs=[image, action, reasoning],
         )
         prev_btn.click(
-            prev_image, inputs=[reasoning], outputs=[image, action, reasoning]
+            prev_image_wrapper,
+            inputs=[session_state, reasoning],
+            outputs=[image, action, reasoning],
         )
         # reasoning_edit_btn.click(edit_reasoning, inputs=reasoning, outputs=[])
-        save_btn.click(save_dataset, inputs=[dataset_path, prompt_text_box], outputs=[])
+        save_btn.click(
+            save_dataset_wrapper,
+            inputs=[session_state, dataset_path, prompt_text_box],
+            outputs=[],
+        )
     return app
 
 

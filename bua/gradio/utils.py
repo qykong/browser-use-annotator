@@ -1,32 +1,38 @@
-import base64
 import glob
-import io
 import json
 import os
 
 from datasets import Dataset, concatenate_datasets
-from gradio.components import ChatMessage
 
 from bua.gradio.constants import (
     SESSION_DIR,
-    last_action,
+    get_session_dir,
+    last_actions,
     title_mappings,
     tool_call_logs,
 )
+from gradio.components import ChatMessage
 
 
-def get_chatbot_messages(logs=None):
+def get_chatbot_messages(session_id=None, logs=None):
     """Format chat messages for gr.Chatbot component
 
     Args:
-        logs: Optional list of tool call logs. If None, uses global tool_call_logs.
+        session_id: Session ID to get logs for. If provided, uses session-specific logs.
+        logs: Optional list of tool call logs. If None, uses session-specific tool_call_logs.
 
     Returns:
         List of ChatMessage objects
     """
     formatted_messages = []
 
-    logs_to_process = logs if logs is not None else tool_call_logs
+    # Determine which logs to use
+    if logs is not None:
+        logs_to_process = logs
+    elif session_id is not None and session_id in tool_call_logs:
+        logs_to_process = tool_call_logs[session_id]
+    else:
+        logs_to_process = []
 
     for tool_call in logs_to_process:
         if tool_call["type"] != "function_call":
@@ -46,7 +52,9 @@ def get_chatbot_messages(logs=None):
         if "reasoning" in tool_call:
             formatted_messages += [
                 ChatMessage(
-                    role=role, content=tool_call["reasoning"], metadata={"title": "🧠 Reasoning"}
+                    role=role,
+                    content=tool_call["reasoning"],
+                    metadata={"title": "🧠 Reasoning"},
                 )
             ]
 
@@ -82,7 +90,9 @@ def get_chatbot_messages(logs=None):
             # Add results if available
             if tool_call.get("result"):
                 content_parts.append("\n**Results:**")
-                content_parts.append(f"```json\n{json.dumps(tool_call['result'], indent=4)}\n```")
+                content_parts.append(
+                    f"```json\n{json.dumps(tool_call['result'], indent=4)}\n```"
+                )
                 # for k, v in tool_call['result'].items():
                 #     content_parts.append(f"- {k}: {v}")
 
@@ -91,23 +101,25 @@ def get_chatbot_messages(logs=None):
 
             formatted_messages += [
                 ChatMessage(
-                    role="assistant", content=content, metadata={"title": title, "status": status}
+                    role="assistant",
+                    content=content,
+                    metadata={"title": title, "status": status},
                 )
             ]
 
     return formatted_messages
 
 
-def load_all_sessions(with_images=False):
+def load_all_sessions(with_images=False, session_id=None):
     """Load and concatenate all session datasets into a single Dataset"""
     try:
         # Get all session folders
         if not os.path.exists(SESSION_DIR):
             return None
 
-        session_folders = glob.glob(os.path.join(SESSION_DIR, "*"))
+        session_folders = glob.glob(os.path.join(get_session_dir(session_id), "*"))
         if not session_folders:
-            return None
+            return []
 
         # Load each dataset and concatenate
         all_datasets = []
@@ -137,7 +149,9 @@ def load_all_sessions(with_images=False):
                             # Check if role has changed
                             if msg.role != current_role:
                                 # Add a line with the new role if it changed
-                                if current_role is not None:  # Skip for the first message
+                                if (
+                                    current_role is not None
+                                ):  # Skip for the first message
                                     messages_text.append(
                                         ""
                                     )  # Add an empty line between role changes
@@ -168,18 +182,21 @@ def load_all_sessions(with_images=False):
                 print(f"Error loading dataset from {folder}: {str(e)}")
 
         if not all_datasets:
-            return None
+            return []
 
         # Concatenate all datasets
         return concatenate_datasets(all_datasets)
     except Exception as e:
         print(f"Error loading sessions: {str(e)}")
-        return None
+        return []
 
 
-def get_last_action_display():
+def get_last_action_display(session_id=None):
     """Format the last action for display in the reasoning box"""
-    global last_action
+    if session_id is None or session_id not in last_actions:
+        return "No actions performed yet"
+
+    last_action = last_actions[session_id]
     if not last_action["name"]:
         return "No actions performed yet"
 
@@ -193,6 +210,7 @@ def get_last_action_display():
 
     return action_str
 
+
 # Helper function for text refinement - used for all refine buttons
 async def handle_text_refinement():
     raise NotImplementedError
@@ -203,7 +221,7 @@ async def handle_reasoning_refinement(reasoning, task):
     return await handle_text_refinement(reasoning, "reasoning", task, use_before=True)
 
 
-def ensure_url_protocol(raw_url, default_protocol = "https"):
+def ensure_url_protocol(raw_url, default_protocol="https"):
     """Ensure the url has a protocol"""
     if not raw_url:
         return raw_url

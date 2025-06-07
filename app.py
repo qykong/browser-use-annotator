@@ -7,7 +7,8 @@ import subprocess
 import sys
 
 
-theme = ThemeClass.load('./static/theme_taithrah_minimal.json')
+theme = ThemeClass.load("./static/theme_taithrah_minimal.json")
+
 
 def ensure_playwright_chrome():
     try:
