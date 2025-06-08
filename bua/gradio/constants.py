@@ -2,7 +2,7 @@ import os
 import random
 import string
 
-from bua.interface.browser import BrowserComputerInterface
+from bua.interface.browser import LocalBrowserInterface
 
 LANG = "English"
 OUTPUT_DIR = "examples/output"

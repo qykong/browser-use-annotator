@@ -2,7 +2,8 @@
 
 import asyncio
 import tempfile
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
 import platform
@@ -54,7 +55,7 @@ visualize_click_position_js = """([x, y]) => {
             }"""
 
 
-class BrowserComputerInterface:
+class LocalBrowserInterface:
     """Interface for controlling Chrome browser using Playwright."""
 
     def __init__(
@@ -63,6 +64,7 @@ class BrowserComputerInterface:
         headless: bool = False,
         context_args: list[str] = [],
         viewport: ViewportSize | None = None,
+        inactivity_timeout: int = 600,  # 10 minutes in seconds
     ):
         self._browser = None
         self._page = None
@@ -73,6 +75,13 @@ class BrowserComputerInterface:
         self.viewport = viewport
         self._redirect_in_progress = False
         self._redirect_promise = None
+        
+        # Inactivity timeout management
+        self.inactivity_timeout = inactivity_timeout
+        self._last_activity_time = time.time()
+        self._timeout_task = None
+        self._shutdown_due_to_inactivity = False
+        
         if self._detect_headless_environment():
             self.headless = True
         else:
@@ -100,6 +109,51 @@ class BrowserComputerInterface:
 
         return any(headless_indicators)
 
+    def _reset_activity_timer(self) -> None:
+        """Reset the inactivity timer."""
+        self._last_activity_time = time.time()
+
+    async def _start_inactivity_monitor(self) -> None:
+        """Start monitoring for inactivity and shutdown browser if timeout is reached."""
+        if self.inactivity_timeout <= 0:
+            return  # Timeout disabled
+            
+        async def monitor_inactivity():
+            while self._ready and not self._shutdown_due_to_inactivity:
+                try:
+                    current_time = time.time()
+                    time_since_last_activity = current_time - self._last_activity_time
+                    
+                    if time_since_last_activity >= self.inactivity_timeout:
+                        logger.info(f"Browser inactive for {self.inactivity_timeout} seconds, shutting down to save resources")
+                        self._shutdown_due_to_inactivity = True
+                        await self._close_async()
+                        break
+                    
+                    # Check every 30 seconds
+                    await asyncio.sleep(30)
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.debug(f"Error in inactivity monitor: {e}")
+                    await asyncio.sleep(30)
+        
+        self._timeout_task = asyncio.create_task(monitor_inactivity())
+
+    def _stop_inactivity_monitor(self) -> None:
+        """Stop the inactivity monitor."""
+        if self._timeout_task and not self._timeout_task.done():
+            self._timeout_task.cancel()
+            self._timeout_task = None
+
+    def is_shutdown_due_to_inactivity(self) -> bool:
+        """Check if the browser was shutdown due to inactivity."""
+        return self._shutdown_due_to_inactivity
+
+    def get_time_since_last_activity(self) -> float:
+        """Get the time in seconds since the last activity."""
+        return time.time() - self._last_activity_time
+
     async def _launch_browser(self):
         """Launch Chrome browser using Playwright."""
         try:
@@ -117,7 +171,7 @@ class BrowserComputerInterface:
                 viewport=self.viewport,
             )
 
-            # Create the very first page – this becomes the single “main” tab
+            # Create the very first page – this becomes the single "main" tab
             self._page = await self._browser.new_page()
 
             # Helper: redirect a newly opened page into the main one, then close
@@ -170,6 +224,8 @@ class BrowserComputerInterface:
             await self._page.goto("about:blank")
 
             self._ready = True  
+            # Start inactivity monitoring
+            await self._start_inactivity_monitor()
             logger.info("Chrome browser launched successfully")
         except Exception as e:
             logger.exception("")
@@ -185,6 +241,7 @@ class BrowserComputerInterface:
         if self._browser is None or self._page is None:
             raise RuntimeError("Browser failed to initialize")
 
+        self._reset_activity_timer()
         logger.info("Browser interface is ready")
 
     def close(self) -> None:
@@ -195,6 +252,9 @@ class BrowserComputerInterface:
     async def _close_async(self) -> None:
         """Async close helper."""
         try:
+            # Stop inactivity monitoring
+            self._stop_inactivity_monitor()
+            
             if self._page:
                 await self._page.close()
             if self._browser:
@@ -254,6 +314,7 @@ class BrowserComputerInterface:
         if not self._page:
             raise RuntimeError("Browser not initialized")
         assert x is not None and y is not None, "x and y must be provided"
+        self._reset_activity_timer()
         if visualize:
             await self.visualize_click_position(x, y)
         await self._page.mouse.click(x, y)
@@ -265,6 +326,7 @@ class BrowserComputerInterface:
         if not self._page:
             raise RuntimeError("Browser not initialized")
         assert x is not None and y is not None, "x and y must be provided"
+        self._reset_activity_timer()
         await self._page.mouse.click(x, y, button="right")
 
     async def double_click(
@@ -274,6 +336,7 @@ class BrowserComputerInterface:
         if not self._page:
             raise RuntimeError("Browser not initialized")
         assert x is not None and y is not None, "x and y must be provided"
+        self._reset_activity_timer()
         if visualize:
             await self.visualize_click_position(x, y)
         await self._page.mouse.dblclick(x, y)
@@ -282,7 +345,7 @@ class BrowserComputerInterface:
         """Move the cursor to specified position."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
-
+        self._reset_activity_timer()
         await self._page.mouse.move(x, y)
 
     async def drag_to(
@@ -291,6 +354,7 @@ class BrowserComputerInterface:
         """Drag from current position to specified coordinates."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
+        self._reset_activity_timer()
 
         # Get current mouse position (assume center if not tracked)
         current_x, current_y = 512, 384
@@ -307,6 +371,7 @@ class BrowserComputerInterface:
         """Drag the cursor along a path of coordinates."""
         if not self._page or not path:
             raise RuntimeError("Browser not initialized or empty path")
+        self._reset_activity_timer()
 
         # Start at first position
         start_x, start_y = path[0]
@@ -328,13 +393,14 @@ class BrowserComputerInterface:
         """Type the specified text."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
-
+        self._reset_activity_timer()
         await self._page.keyboard.type(text)
 
     async def press_key(self, key: str) -> None:
         """Press a single key."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
+        self._reset_activity_timer()
 
         # Map common key names to Playwright key names
         key_mapping = {
@@ -374,6 +440,7 @@ class BrowserComputerInterface:
         """Press multiple keys simultaneously."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
+        self._reset_activity_timer()
 
         # Convert keys to Playwright format
         key_mapping = {
@@ -405,6 +472,7 @@ class BrowserComputerInterface:
         """Scroll down."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
+        self._reset_activity_timer()
         viewport = self._page.viewport_size
         if viewport is None:
             viewport_height = 768  # Default height
@@ -431,6 +499,7 @@ class BrowserComputerInterface:
         """Scroll up."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
+        self._reset_activity_timer()
 
         viewport = self._page.viewport_size
         if viewport is None:
@@ -458,6 +527,7 @@ class BrowserComputerInterface:
         """
         if not self._page:
             raise RuntimeError("Browser not initialized")
+        self._reset_activity_timer()
 
         # Ensure any ongoing redirects are completed before taking screenshot
         await self._wait_for_redirect_completion()
@@ -491,26 +561,19 @@ class BrowserComputerInterface:
         """
         if not self._page:
             raise RuntimeError("Browser not initialized")
-
+        self._reset_activity_timer()
         viewport = self._page.viewport_size
         if viewport is None:
             # Default viewport size if not set
             return {"width": 1024, "height": 768}
         return {"width": viewport["width"], "height": viewport["height"]}
 
-    async def get_cursor_position(self) -> Dict[str, int]:
-        """Get current cursor position."""
-        # Playwright doesn't provide direct access to cursor position
-        # Return center of viewport as fallback
-        viewport = await self.get_screen_size()
-        return {"x": viewport["width"] // 2, "y": viewport["height"] // 2}
-
-    # Clipboard Actions
     async def copy_to_clipboard(self) -> str:
         """Get clipboard content."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
 
+        self._reset_activity_timer()
         # Use JavaScript to access clipboard
         try:
             clipboard_content = await self._page.evaluate("""
@@ -535,6 +598,7 @@ class BrowserComputerInterface:
         """Set clipboard content."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
+        self._reset_activity_timer()
 
         # Use JavaScript to set clipboard
         await self._page.evaluate(
@@ -546,138 +610,11 @@ class BrowserComputerInterface:
             text,
         )
 
-    # File System Actions
-    async def file_exists(self, path: str) -> bool:
-        """Check if file exists."""
-        # For browser interface, this doesn't make sense
-        # Return False as browser doesn't have direct file system access
-        return False
-
-    async def directory_exists(self, path: str) -> bool:
-        """Check if directory exists."""
-        # For browser interface, this doesn't make sense
-        return False
-
-    async def run_command(self, command: str) -> Tuple[str, str]:
-        """Run shell command."""
-        # For browser interface, we can't run shell commands
-        # But we can navigate to URLs if the command looks like a URL
-        if command.startswith(("http://", "https://", "www.")):
-            try:
-                if not self._page:
-                    raise RuntimeError("Browser not initialized")
-                if not command.startswith(("http://", "https://")):
-                    command = "https://" + command
-                await self._page.goto(command)
-                return f"Navigated to {command}", ""
-            except Exception as e:
-                return "", f"Failed to navigate: {str(e)}"
-        else:
-            return "", "Shell commands not supported in browser interface"
-
-    # Accessibility Actions
-    async def get_accessibility_tree(self) -> Dict:
-        """Get the accessibility tree of the current screen."""
-        if not self._page:
-            raise RuntimeError("Browser not initialized")
-
-        try:
-            # Get accessibility tree using Playwright's accessibility API
-            accessibility_tree = await self._page.accessibility.snapshot()
-            return accessibility_tree or {}
-        except Exception as e:
-            logger.debug(f"Failed to get accessibility tree: {e}")
-            return {}
-
-    async def to_screen_coordinates(self, x: float, y: float) -> tuple[float, float]:
-        """Convert screenshot coordinates to screen coordinates.
-
-        Args:
-            x: X coordinate in screenshot space
-            y: Y coordinate in screenshot space
-
-        Returns:
-            tuple[float, float]: (x, y) coordinates in screen space
-        """
-        # For browser interface, screenshot and screen coordinates are the same
-        return (x, y)
-
-    async def to_screenshot_coordinates(
-        self, x: float, y: float
-    ) -> tuple[float, float]:
-        """Convert screen coordinates to screenshot coordinates.
-
-        Args:
-            x: X coordinate in screen space
-            y: Y coordinate in screen space
-
-        Returns:
-            tuple[float, float]: (x, y) coordinates in screenshot space
-        """
-        # For browser interface, screenshot and screen coordinates are the same
-        return (x, y)
-
-    # Browser-specific methods
-    async def navigate_to(self, url: str) -> None:
-        """Navigate to a specific URL."""
-        if not self._page:
-            raise RuntimeError("Browser not initialized")
-
-        await self._page.goto(url)
-
-    async def get_current_url(self) -> str:
-        """Get the current page URL."""
-        if not self._page:
-            raise RuntimeError("Browser not initialized")
-
-        return self._page.url
-
-    async def get_page_title(self) -> str:
-        """Get the current page title."""
-        if not self._page:
-            raise RuntimeError("Browser not initialized")
-
-        return await self._page.title()
-
-    async def wait_for_selector(self, selector: str, timeout: int = 5000) -> None:
-        """Wait for an element with the given selector to appear."""
-        if not self._page:
-            raise RuntimeError("Browser not initialized")
-
-        await self._page.wait_for_selector(selector, timeout=timeout)
-
-    async def click_selector(self, selector: str) -> None:
-        """Click on an element with the given selector."""
-        if not self._page:
-            raise RuntimeError("Browser not initialized")
-
-        await self._page.click(selector)
-
-    async def fill_selector(self, selector: str, text: str) -> None:
-        """Fill an input element with the given selector."""
-        if not self._page:
-            raise RuntimeError("Browser not initialized")
-
-        await self._page.fill(selector, text)
-
-    async def get_element_text(self, selector: str) -> str:
-        """Get text content of an element."""
-        if not self._page:
-            raise RuntimeError("Browser not initialized")
-
-        return await self._page.text_content(selector) or ""
-
-    async def evaluate_javascript(self, script: str) -> Any:
-        """Execute JavaScript on the current page."""
-        if not self._page:
-            raise RuntimeError("Browser not initialized")
-
-        return await self._page.evaluate(script)
-
     async def go_to_url(self, url: str) -> None:
         """Go to a URL."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
+        self._reset_activity_timer()
         print(f"Going to URL: {url}")
         await self._page.goto(url)
         await self._page.wait_for_load_state("domcontentloaded")
@@ -686,6 +623,7 @@ class BrowserComputerInterface:
         """Perform a triple click."""
         if not self._page:
             raise RuntimeError("Browser not initialized")
+        self._reset_activity_timer()
         if visualize:
             await self.visualize_click_position(x, y)
         await self._page.mouse.click(x, y, click_count=3)

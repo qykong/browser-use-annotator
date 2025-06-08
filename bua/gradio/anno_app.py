@@ -39,7 +39,7 @@ from bua.gradio.utils import (
     handle_reasoning_refinement,
     load_all_sessions,
 )
-from bua.interface.browser import BrowserComputerInterface
+from bua.interface.browser import LocalBrowserInterface
 
 
 def get_sessions_data(session_id):
@@ -235,10 +235,6 @@ async def execute(session_id, name, action, arguments):
             results["clipboard"] = await computer.copy_to_clipboard()
         elif action == "set_clipboard":
             await computer.set_clipboard(arguments["text"])
-        elif action == "run_command":
-            stdout, stderr = await computer.run_command(arguments["command"])
-            results["stdout"] = stdout
-            results["stderr"] = stderr
         elif action == "shutdown":
             computer.close()
         elif action == "go_to_url":
@@ -275,7 +271,7 @@ async def handle_init_computer(session_id):
     if session_id not in computers:
         initialize_session(session_id)
 
-    computers[session_id] = BrowserComputerInterface()
+    computers[session_id] = LocalBrowserInterface()
     await computers[session_id].wait_for_ready()
 
     result = await execute(
