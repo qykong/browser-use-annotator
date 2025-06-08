@@ -3,11 +3,14 @@ import os
 
 import datasets
 from PIL import Image, ImageDraw
+from joblib import Parallel, delayed
 
 import gradio as gr
 import gradio.themes as gr_themes
 from bua.gradio.constants import generate_session_id, get_session_dir
 from bua.gradio.utils import load_all_sessions
+from bua.llm.prompts import REASONING_PROMPT_TEMPLATE
+from bua.llm.utils import call_openai_vlm
 
 # Session-specific state dictionaries (indexed by session_id)
 tool_calls_list = {}  # session_id -> list[list[dict]] | None
@@ -33,7 +36,164 @@ def initialize_replay_session(session_id):
         prompt_text_idx[session_id] = 0
 
 
-def plot_dot_to_image(prev_image, result_image, action):
+def process_single_action(action_data, goal, current_images, openai_config):
+    """Process a single action for reasoning generation"""
+    tool_call_idx, tool_call, image_idx, action_history = action_data
+    
+    try:
+        action_args = json.loads(tool_call["arguments"])
+        action_description = f"{action_args.get('action', 'unknown')}"
+        if "x" in action_args and "y" in action_args:
+            action_description += (
+                f" at coordinates ({action_args['x']}, {action_args['y']})"
+            )
+        if "text" in action_args:
+            action_description += f" with text: '{action_args['text']}'"
+
+        before_image = current_images[image_idx - 1] if image_idx > 0 else None
+        after_image = (
+            current_images[image_idx] if image_idx < len(current_images) else None
+        )
+        before_image, after_image = plot_dot_to_image(
+            before_image, after_image, action_args, combine_images=False
+        )
+
+        reasoning = call_openai_vlm(
+            REASONING_PROMPT_TEMPLATE.render(
+                goal=goal, action=action_description, action_history=action_history
+            ),
+            [before_image, after_image],
+            api_key=openai_config.get("api_key", ""),
+            base_url=openai_config.get("base_url", "https://api.openai.com/v1"),
+            model=openai_config.get("model", "gpt-4o"),
+        )
+        reasoning = reasoning.replace("Reasoning:", "").strip()
+        
+        return tool_call_idx, reasoning, None
+
+    except Exception as e:
+        return tool_call_idx, f"Auto-annotation failed: {str(e)}", str(e)
+
+
+def auto_annotate_all_actions(
+    session_id,
+    dataset_path,
+    openai_config,
+    cur_image,
+    cur_action,
+    cur_reasoning,
+    cur_prompt_text,
+    progress=gr.Progress(),
+):
+    """Auto-annotate all actions in the dataset using VLM with concurrent processing"""
+    if not dataset_path:
+        gr.Warning("Please select a dataset first!")
+        return cur_image, cur_action, cur_reasoning, cur_prompt_text
+
+    if not openai_config.get("api_key", "").strip():
+        gr.Warning("Please provide an OpenAI API key!")
+        return cur_image, cur_action, cur_reasoning, cur_prompt_text
+
+    if not openai_config.get("model", "").strip():
+        gr.Warning("Please specify a model to use!")
+        return cur_image, cur_action, cur_reasoning, cur_prompt_text
+
+    # Initialize session if needed
+    initialize_replay_session(session_id)
+
+    # Load dataset if not already loaded
+    if tool_calls_list[session_id] is None:
+        load_dataset(session_id, dataset_path)
+
+    if tool_calls_list[session_id] is None or images_list[session_id] is None:
+        gr.Warning("Failed to load dataset!")
+        return cur_image, cur_action, cur_reasoning, cur_prompt_text
+
+    # Get the current tool calls and images
+    current_tool_calls = tool_calls_list[session_id][tool_calls_index[session_id]]
+    current_images = images_list[session_id][tool_calls_index[session_id]]
+    goal = prompt_text[session_id]
+
+    # Filter out actions that don't have screenshots (like submit actions)
+    actions_to_annotate = []
+    action_history = []
+    
+    for i, tool_call in enumerate(current_tool_calls):
+        if i <= prompt_text_idx[session_id]:
+            continue
+        if (
+            "result" in tool_call
+            and tool_call["result"] is not None
+            and "screenshot" in tool_call["result"]
+        ):
+            # Extract image index from result
+            try:
+                screenshot_ref = tool_call["result"]["screenshot"]
+                image_idx = int(screenshot_ref.split(":")[-1].replace(">", ""))
+                
+                # Skip if reasoning already exists
+                if not tool_call.get("reasoning", "").strip():
+                    actions_to_annotate.append((i, tool_call, image_idx, action_history.copy()))
+                
+                # Build action history for context
+                action_args = json.loads(tool_call["arguments"])
+                action_desc = f"{action_args.get('action', 'unknown')}"
+                if "x" in action_args and "y" in action_args:
+                    action_desc += f" at coordinates ({action_args['x']}, {action_args['y']})"
+                if "text" in action_args:
+                    action_desc += f" with text: '{action_args['text']}'"
+                action_history.append(action_desc)
+                
+            except (ValueError, IndexError):
+                continue
+
+    if not actions_to_annotate:
+        gr.Info("No actions found that need annotation!")
+        return cur_image, cur_action, cur_reasoning, cur_prompt_text
+
+    progress(0, desc="Starting auto-annotation...")
+
+    # Process actions in parallel with progress tracking
+    n_jobs = min(openai_config.get("max_workers", 1), len(actions_to_annotate))
+    
+    try:
+        # Create a generator that yields delayed tasks while updating progress
+        def create_delayed_tasks():
+            for idx, action_data in enumerate(actions_to_annotate):
+                # Update progress as we submit each task
+                progress_percent = idx / len(actions_to_annotate)
+                progress(progress_percent, desc=f"Submitting action {idx + 1}/{len(actions_to_annotate)} for processing...")
+                yield delayed(process_single_action)(action_data, goal, current_images, openai_config)
+        
+        # Process all actions in parallel
+        progress(0.1, desc="Processing actions in parallel...")
+        results = Parallel(n_jobs=n_jobs, backend="threading")(create_delayed_tasks())
+
+        # Update tool calls with results
+        progress(0.9, desc="Collecting results...")
+        successful_annotations = 0
+        for tool_call_idx, reasoning, error in results:
+            tool_calls_list[session_id][tool_calls_index[session_id]][tool_call_idx]["reasoning"] = reasoning
+            if error is None:
+                successful_annotations += 1
+            else:
+                print(f"Error processing action {tool_call_idx}: {error}")
+
+        progress(1.0, desc="Auto-annotation completed!")
+        gr.Info(f"Successfully auto-annotated {successful_annotations}/{len(actions_to_annotate)} actions!")
+
+    except Exception as e:
+        progress(1.0, desc="Auto-annotation failed!")
+        gr.Warning(f"Auto-annotation failed: {str(e)}")
+
+    # Return updated current display
+    cur_reasoning = tool_calls_list[session_id][tool_calls_index[session_id]][
+        current_tool_call_index[session_id]
+    ]["reasoning"]
+    return cur_image, cur_action, cur_reasoning, cur_prompt_text
+
+
+def plot_dot_to_image(prev_image, result_image, action, combine_images=True):
     if "x" in action and "y" in action:
         assert prev_image is not None
         prev_image = prev_image.convert("RGBA")
@@ -71,42 +231,45 @@ def plot_dot_to_image(prev_image, result_image, action):
         prev_image = prev_image.convert("RGBA")
     result_image = result_image.convert("RGBA")
 
-    width, height = result_image.size
-    label_height = 30
-    border_width = 3
-    combined = Image.new(
-        "RGBA", (width * 2, height + label_height), (255, 255, 255, 255)
-    )
+    if combine_images:
+        width, height = result_image.size
+        label_height = 30
+        border_width = 3
+        combined = Image.new(
+            "RGBA", (width * 2, height + label_height), (255, 255, 255, 255)
+        )
 
-    # Draw labels
-    draw_combined = ImageDraw.Draw(combined)
+        # Draw labels
+        draw_combined = ImageDraw.Draw(combined)
 
-    draw_combined.text(
-        (width // 2 - 60, 5), "Before Action", fill="black", font_size=20
-    )
-    draw_combined.text(
-        (width + width // 2 - 60, 5), "After Action", fill="black", font_size=20
-    )
+        draw_combined.text(
+            (width // 2 - 60, 5), "Before Action", fill="black", font_size=20
+        )
+        draw_combined.text(
+            (width + width // 2 - 60, 5), "After Action", fill="black", font_size=20
+        )
 
-    # Paste images
-    combined.paste(prev_image, (0, label_height))
-    combined.paste(result_image, (width, label_height))
+        # Paste images
+        combined.paste(prev_image, (0, label_height))
+        combined.paste(result_image, (width, label_height))
 
-    # Draw borders around both images
-    # Border for before image
-    draw_combined.rectangle(
-        [0, label_height, width - 1, label_height + height - 1],
-        outline="black",
-        width=border_width,
-    )
-    # Border for after image
-    draw_combined.rectangle(
-        [width, label_height, width * 2 - 1, label_height + height - 1],
-        outline="black",
-        width=border_width,
-    )
+        # Draw borders around both images
+        # Border for before image
+        draw_combined.rectangle(
+            [0, label_height, width - 1, label_height + height - 1],
+            outline="black",
+            width=border_width,
+        )
+        # Border for after image
+        draw_combined.rectangle(
+            [width, label_height, width * 2 - 1, label_height + height - 1],
+            outline="black",
+            width=border_width,
+        )
 
-    return combined
+        return combined
+    else:
+        return prev_image, result_image
 
 
 def plot_image(prev_image, image, tool_calls, image_index, session_id):
@@ -291,14 +454,62 @@ def create_replay_gradio_ui():
             "", storage_key="annotation_app", secret="annotation_app"
         )
 
+        # Consolidated OpenAI configuration state
+        openai_config_state = gr.BrowserState(
+            {
+                "api_key": "",
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-4o",
+                "max_workers": 1
+            },
+            storage_key="openai_config",
+            secret="openai_config",
+        )
+
         gr.Markdown(f"# Reasoning Annotation")
-        gr.Markdown("🌟 **[Star us on GitHub](https://github.com/qykong/browser-use-annotator)** to support this project!")
+        gr.Markdown(
+            "🌟 **[Star us on GitHub](https://github.com/qykong/browser-use-annotator)** to support this project!"
+        )
+
+        # Add API Configuration Section
+        with gr.Accordion("OpenAI API Configuration", open=False):
+            with gr.Row():
+                api_key_input = gr.Textbox(
+                    label="OpenAI API Key",
+                    type="password",
+                    placeholder="Enter your OpenAI API key...",
+                    interactive=True,
+                )
+                base_url_input = gr.Textbox(
+                    label="Base URL (Optional)",
+                    placeholder="https://api.openai.com/v1",
+                    value="https://api.openai.com/v1",
+                    interactive=True,
+                )
+            with gr.Row():
+                model_input = gr.Textbox(
+                    label="Model",
+                    placeholder="gpt-4o",
+                    value="gpt-4o",
+                    interactive=True,
+                )
+                max_workers_input = gr.Number(
+                    label="Max Concurrent Requests",
+                    value=1,
+                    minimum=1,
+                    maximum=20,
+                    step=1,
+                    interactive=True,
+                )
 
         with gr.Row():
             with gr.Column(scale=5):
                 dataset_path = gr.Dropdown(choices=[], label="Datasets")
             with gr.Column(scale=1):
                 load_btn = gr.Button(value="Refresh Dataset", variant="secondary")
+                auto_annotate_btn = gr.Button(
+                    value="Auto Annotate with VLM", variant="secondary"
+                )
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -310,37 +521,62 @@ def create_replay_gradio_ui():
             reasoning = gr.Textbox(value="", label="Reasoning", interactive=True)
 
         with gr.Row():
-            # reasoning_edit_btn = gr.Button(value="Edit Reasoning")
             prev_btn = gr.Button(value="Prev Step", variant="secondary")
             next_btn = gr.Button(value="Next Step", variant="secondary")
             save_btn = gr.Button(value="Save", variant="primary")
 
         # Session initialization on app load
-        @app.load(inputs=[session_state], outputs=[session_state, dataset_path])
-        def initialize_session_on_load(session_id):
+        @app.load(
+            inputs=[session_state, openai_config_state],
+            outputs=[
+                session_state,
+                dataset_path,
+                api_key_input,
+                base_url_input,
+                model_input,
+                max_workers_input,
+            ],
+        )
+        def initialize_session_on_load(session_id, openai_config):
             """Initialize session when app loads"""
             if session_id == "":
                 session_id = generate_session_id()
             print(f"Initializing replay session {session_id}")
             initialize_replay_session(session_id)
-            return session_id, gr.Dropdown(choices=load_all_datasets(session_id))
 
-        # Wrapper functions to handle session state
-        def load_dataset_wrapper(session_id, dataset_path):
-            if not dataset_path:
-                return None, "", "", ""
-            return load_dataset(session_id, dataset_path)
+            # Load saved OpenAI configuration
+            api_key = openai_config.get("api_key", "")
+            base_url = openai_config.get("base_url", "https://api.openai.com/v1")
+            model = openai_config.get("model", "gpt-4o")
+            max_workers = openai_config.get("max_workers", 3)
 
-        def next_image_wrapper(session_id, reasoning_text):
-            return next_image(session_id, reasoning_text)
+            return (
+                session_id,
+                gr.Dropdown(choices=load_all_datasets(session_id)),
+                api_key,
+                base_url,
+                model,
+                max_workers,
+            )
 
-        def prev_image_wrapper(session_id, reasoning_text):
-            return prev_image(session_id, reasoning_text)
+        # Save OpenAI configuration when changed
+        def save_openai_config(openai_config, api_key, base_url, model, max_workers):
+            """Save OpenAI configuration to browser state"""
+            updated_config = {
+                "api_key": api_key,
+                "base_url": base_url if base_url.strip() else "https://api.openai.com/v1",
+                "model": model,
+                "max_workers": int(max_workers)
+            }
+            return updated_config
 
-        def save_dataset_wrapper(session_id, dataset_path, prompt_text_box_value):
-            if not dataset_path:
-                return
-            return save_dataset(session_id, dataset_path, prompt_text_box_value)
+        # Update config on any input change
+        for input_component in [api_key_input, base_url_input, model_input, max_workers_input]:
+            input_component.change(
+                save_openai_config,
+                inputs=[openai_config_state, api_key_input, base_url_input, model_input, max_workers_input],
+                outputs=[openai_config_state],
+            )
 
         load_btn.click(
             lambda session_id: gr.Dropdown(choices=load_all_datasets(session_id)),
@@ -348,23 +584,38 @@ def create_replay_gradio_ui():
             outputs=[dataset_path],
         )
         dataset_path.change(
-            load_dataset_wrapper,
+            load_dataset,
             inputs=[session_state, dataset_path],
             outputs=[image, action, reasoning, prompt_text_box],
         )
+
+        # Auto-annotate button with consolidated config
+        auto_annotate_btn.click(
+            auto_annotate_all_actions,
+            inputs=[
+                session_state,
+                dataset_path,
+                openai_config_state,
+                image,
+                action,
+                reasoning,
+                prompt_text_box,
+            ],
+            outputs=[image, action, reasoning, prompt_text_box],
+        )
+
         next_btn.click(
-            next_image_wrapper,
+            next_image,
             inputs=[session_state, reasoning],
             outputs=[image, action, reasoning],
         )
         prev_btn.click(
-            prev_image_wrapper,
+            prev_image,
             inputs=[session_state, reasoning],
             outputs=[image, action, reasoning],
         )
-        # reasoning_edit_btn.click(edit_reasoning, inputs=reasoning, outputs=[])
         save_btn.click(
-            save_dataset_wrapper,
+            save_dataset,
             inputs=[session_state, dataset_path, prompt_text_box],
             outputs=[],
         )
@@ -373,4 +624,5 @@ def create_replay_gradio_ui():
 
 if __name__ == "__main__":
     app = create_replay_gradio_ui()
+    app.queue()  # Required for progress bars to work
     app.launch(share=False)
