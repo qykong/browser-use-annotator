@@ -1,5 +1,8 @@
 import json
 import os
+import zipfile
+import tempfile
+from pathlib import Path
 
 import datasets
 from PIL import Image, ImageDraw
@@ -441,6 +444,45 @@ def load_all_datasets(session_id):
     return [session["source_folder"] for session in sessions]
 
 
+def create_dataset_download(session_id, dataset_path, prompt_text_box_value):
+    """Create a zip file of the selected dataset for download"""
+    if not dataset_path:
+        gr.Warning("Please select a dataset first!")
+        return None
+    save_dataset(session_id, dataset_path, prompt_text_box_value)
+    
+    try:
+        # Get the full dataset path
+        full_dataset_path = os.path.join(get_session_dir(session_id), dataset_path)
+        
+        if not os.path.exists(full_dataset_path):
+            gr.Warning("Dataset path does not exist!")
+            return None
+        
+        # Create a temporary zip file
+        temp_dir = tempfile.mkdtemp()
+        zip_filename = f"{dataset_path.replace('/', '_')}.zip"
+        zip_path = os.path.join(temp_dir, zip_filename)
+        
+        # Create the zip file
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            dataset_path_obj = Path(full_dataset_path)
+            
+            # Add all files in the dataset directory to the zip
+            for file_path in dataset_path_obj.rglob('*'):
+                if file_path.is_file():
+                    # Calculate the relative path for the zip archive
+                    relative_path = file_path.relative_to(dataset_path_obj.parent)
+                    zipf.write(file_path, relative_path)
+        
+        gr.Info(f"Dataset '{dataset_path}' has been prepared for download!")
+        return zip_path
+        
+    except Exception as e:
+        gr.Warning(f"Failed to create download file: {str(e)}")
+        return None
+
+
 def create_replay_gradio_ui():
     theme = gr_themes.Soft(
         primary_hue=gr_themes.colors.slate,
@@ -524,6 +566,11 @@ def create_replay_gradio_ui():
             prev_btn = gr.Button(value="Prev Step", variant="secondary")
             next_btn = gr.Button(value="Next Step", variant="secondary")
             save_btn = gr.Button(value="Save", variant="primary")
+            download_btn = gr.DownloadButton(
+                    label="Download Annotated Dataset", 
+                    variant="primary",
+                    visible=False
+                )
 
         # Session initialization on app load
         @app.load(
@@ -578,15 +625,32 @@ def create_replay_gradio_ui():
                 outputs=[openai_config_state],
             )
 
+        # Function to update download button visibility
+        def update_download_button_visibility(dataset_path_value):
+            """Show download button when a dataset is selected"""
+            return gr.DownloadButton(visible=bool(dataset_path_value))
+
         load_btn.click(
             lambda session_id: gr.Dropdown(choices=load_all_datasets(session_id)),
             inputs=[session_state],
             outputs=[dataset_path],
         )
+        
         dataset_path.change(
             load_dataset,
             inputs=[session_state, dataset_path],
             outputs=[image, action, reasoning, prompt_text_box],
+        ).then(
+            update_download_button_visibility,
+            inputs=[dataset_path],
+            outputs=[download_btn]
+        )
+
+        # Download button click handler
+        download_btn.click(
+            create_dataset_download,
+            inputs=[session_state, dataset_path, prompt_text_box],
+            outputs=[download_btn]
         )
 
         # Auto-annotate button with consolidated config
@@ -624,5 +688,4 @@ def create_replay_gradio_ui():
 
 if __name__ == "__main__":
     app = create_replay_gradio_ui()
-    app.queue()  # Required for progress bars to work
     app.launch(share=False)
