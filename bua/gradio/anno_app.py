@@ -9,7 +9,6 @@ import hashlib
 import io
 import json
 import os
-import uuid
 from datetime import datetime
 
 import datasets
@@ -126,18 +125,14 @@ def save_demonstration(session_id, log_data, demo_name=None):
 
 def log_tool_call(session_id, name, action, arguments, result=None):
     """Log a tool call with unique IDs and results"""
-    # Ensure session is initialized
     if session_id not in tool_call_logs:
         initialize_session(session_id)
 
-    # Get session-specific data
     session_tool_logs = tool_call_logs[session_id]
     session_screenshots = screenshot_images[session_id]
 
-    # Create arguments JSON that includes the action
     args = {"action": action, **arguments}
 
-    # Process result for logging
     processed_result = {}
     if result:
         for key, value in result.items():
@@ -153,13 +148,11 @@ def log_tool_call(session_id, name, action, arguments, result=None):
             elif key == "clipboard" and isinstance(value, str):
                 processed_result[key] = value
             elif isinstance(value, bytes):
-                # Create hash for any binary data
                 hash_value = hashlib.md5(value).hexdigest()
                 processed_result[key] = f"<Binary data: MD5 {hash_value}>"
             else:
                 processed_result[key] = value
 
-    # Create the tool call log entry
     log_entry = {
         "type": "function_call",
         "name": name,
@@ -167,7 +160,6 @@ def log_tool_call(session_id, name, action, arguments, result=None):
         "result": processed_result if result else None,
     }
 
-    # Add to logs and immediately flush by printing
     session_tool_logs.append(log_entry)
     print(f"Tool call logged: {json.dumps(log_entry)}")
 
@@ -176,7 +168,6 @@ def log_tool_call(session_id, name, action, arguments, result=None):
 
 async def execute(session_id, name, action, arguments):
     """Execute a tool call, log it, and return any results"""
-    # Ensure session is initialized
     if session_id not in computers:
         initialize_session(session_id)
 
@@ -281,7 +272,6 @@ async def execute(session_id, name, action, arguments):
 
 async def handle_init_computer(session_id):
     """Initialize the computer instance and tools for macOS or Ubuntu"""
-    # Ensure session is initialized
     if session_id not in computers:
         initialize_session(session_id)
 
@@ -453,7 +443,9 @@ def create_gradio_ui():
             "", storage_key="annotation_app", secret="annotation_app"
         )
         gr.Markdown(f"# {LANGUAGES[LANG]['title']}")
-        gr.Markdown("🌟 **[Star us on GitHub](https://github.com/qykong/browser-use-annotator)** to support this project!")
+        gr.Markdown(
+            "🌟 **[Star us on GitHub](https://github.com/qykong/browser-use-annotator)** to support this project!"
+        )
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -555,7 +547,6 @@ def create_gradio_ui():
                         )
                     with gr.Row(equal_height=True):
                         with gr.Column(scale=3):
-                            # Click type selection
                             click_type = gr.Radio(
                                 [
                                     "left_click",
@@ -602,14 +593,12 @@ def create_gradio_ui():
                     with gr.TabItem(LANGUAGES[LANG]["save_share_demos"]):
                         with gr.Row():
                             with gr.Column(scale=3):
-                                # Dataset viewer - automatically loads sessions with selection column
                                 dataset_viewer = gr.DataFrame(
                                     label=LANGUAGES[LANG]["all_sessions"],
                                     interactive=True,
                                 )
 
                             with gr.Column(scale=1):
-                                # Demo name with random name button
                                 with gr.Group():
                                     demo_name = gr.Textbox(
                                         label=LANGUAGES[LANG]["demo_name"],
@@ -627,7 +616,6 @@ def create_gradio_ui():
                                     label=LANGUAGES[LANG]["save_status"], value=""
                                 )
 
-        # Session initialization on app load
         @app.load(
             inputs=[session_state],
             outputs=[
@@ -652,23 +640,17 @@ def create_gradio_ui():
                 get_sessions_data(session_id),
             )
 
-        # Handle save button
         save_btn.click(
             save_demonstration,
             inputs=[session_state, action_log, demo_name],
             outputs=[save_status],
         )
 
-        # Function to refresh the dataset viewer
-        def refresh_dataset_viewer(session_id):
-            return get_sessions_data(session_id)
-
         # Also update the dataset viewer when saving
         save_btn.click(
-            refresh_dataset_viewer, inputs=[session_state], outputs=dataset_viewer
+            get_sessions_data, inputs=[session_state], outputs=dataset_viewer
         )
 
-        # Function to run task setup
         async def run_task_setup(session_id, task_text):
             if session_id not in computers or computers[session_id] is None:
                 await handle_init_computer(session_id)
@@ -679,19 +661,14 @@ def create_gradio_ui():
             gr.Info("Setup complete")
             return screenshot, logs_json
 
-        # Connect the setup button
         run_setup_btn.click(
             run_task_setup,
             inputs=[session_state, current_task],
             outputs=[img, action_log],
         )
 
-        # Event handlers
-        def update_chat_from_logs(session_id):
-            return get_chatbot_messages(session_id)
-
         action_log.change(
-            update_chat_from_logs, inputs=[session_state], outputs=[chat_log]
+            get_chatbot_messages, inputs=[session_state], outputs=[chat_log]
         )
 
         img.select(
@@ -700,20 +677,13 @@ def create_gradio_ui():
             outputs=[img, action_log],
         )
 
-        async def handle_wait_wrapper(session_id):
-            return await handle_wait(session_id)
+        wait_btn.click(handle_wait, inputs=[session_state], outputs=[img, action_log])
 
-        wait_btn.click(
-            handle_wait_wrapper, inputs=[session_state], outputs=[img, action_log]
-        )
-
-        # Define async handler for scrolling
         async def handle_scroll(session_id, direction, num_clicks=1):
             """Scroll the page up or down"""
             if session_id not in computers or computers[session_id] is None:
                 return None, json.dumps(tool_call_logs.get(session_id, []), indent=2)
 
-            # Convert num_clicks to integer with validation
             try:
                 num_clicks = int(num_clicks)
                 if num_clicks < 1:
@@ -721,7 +691,6 @@ def create_gradio_ui():
             except (ValueError, TypeError):
                 num_clicks = 1
 
-            # Execute the scroll action
             action = "scroll_up" if direction == "up" else "scroll_down"
             result = await execute(
                 session_id, "computer", action, {"clicks": num_clicks}
@@ -731,7 +700,6 @@ def create_gradio_ui():
                 tool_call_logs.get(session_id, []), indent=2
             )
 
-        # Connect scroll buttons
         scroll_up_btn.click(
             handle_scroll,
             inputs=[session_state, gr.State("up")],
@@ -771,47 +739,42 @@ def create_gradio_ui():
             handle_clear_log_wrapper, inputs=[session_state], outputs=action_log
         )
 
-        # Update last action display after each action
-        def update_last_action_display(session_id):
-            return get_last_action_display(session_id)
-
         img.select(
-            update_last_action_display,
+            get_last_action_display,
             inputs=[session_state],
             outputs=last_action_display,
         )
         wait_btn.click(
-            update_last_action_display,
+            get_last_action_display,
             inputs=[session_state],
             outputs=last_action_display,
         )
         submit_text_btn.click(
-            update_last_action_display,
+            get_last_action_display,
             inputs=[session_state],
             outputs=last_action_display,
         )
         message_submit_btn.click(
-            update_last_action_display,
+            get_last_action_display,
             inputs=[session_state],
             outputs=last_action_display,
         )
         submit_url_btn.click(
-            update_last_action_display,
+            get_last_action_display,
             inputs=[session_state],
             outputs=last_action_display,
         )
         scroll_down_btn.click(
-            update_last_action_display,
+            get_last_action_display,
             inputs=[session_state],
             outputs=last_action_display,
         )
         scroll_up_btn.click(
-            update_last_action_display,
+            get_last_action_display,
             inputs=[session_state],
             outputs=last_action_display,
         )
 
-        # Handle reasoning submission
         async def handle_reasoning_update(session_id, reasoning, is_erroneous):
             status = await update_reasoning(session_id, reasoning, is_erroneous)
             return status, json.dumps(tool_call_logs.get(session_id, []), indent=2)
@@ -855,7 +818,6 @@ def create_gradio_ui():
     return app
 
 
-# Launch the app
 if __name__ == "__main__":
     app = create_gradio_ui()
     app.launch(share=False)

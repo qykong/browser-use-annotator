@@ -27,7 +27,6 @@ prompt_text_idx = {}  # session_id -> int
 
 
 def initialize_replay_session(session_id):
-    """Initialize all session-specific state for replay app"""
     if session_id not in tool_calls_list:
         tool_calls_list[session_id] = None
         images_list[session_id] = None
@@ -163,16 +162,13 @@ def auto_annotate_all_actions(
         # Create a generator that yields delayed tasks while updating progress
         def create_delayed_tasks():
             for idx, action_data in enumerate(actions_to_annotate):
-                # Update progress as we submit each task
                 progress_percent = idx / len(actions_to_annotate)
                 progress(progress_percent, desc=f"Submitting action {idx + 1}/{len(actions_to_annotate)} for processing...")
                 yield delayed(process_single_action)(action_data, goal, current_images, openai_config)
         
-        # Process all actions in parallel
         progress(0.1, desc="Processing actions in parallel...")
         results = Parallel(n_jobs=n_jobs, backend="threading")(create_delayed_tasks())
 
-        # Update tool calls with results
         progress(0.9, desc="Collecting results...")
         successful_annotations = 0
         for tool_call_idx, reasoning, error in results:
@@ -202,11 +198,9 @@ def plot_dot_to_image(prev_image, result_image, action, combine_images=True):
         prev_image = prev_image.convert("RGBA")
         draw = ImageDraw.Draw(prev_image)
 
-        # Draw circular indicator (similar to the JS version)
         x, y = action["x"], action["y"]
         radius = 5
 
-        # Draw filled circle with semi-transparent red background
         draw.ellipse(
             [x - radius, y - radius, x + radius, y + radius],
             fill=(0, 0, 0, 128),  # rgba(255, 0, 0, 0.5) equivalent
@@ -214,18 +208,15 @@ def plot_dot_to_image(prev_image, result_image, action, combine_images=True):
             width=2,
         )
 
-        # Add coordinate label
         label_text = f"({x}, {y})"
         label_x, label_y = x + 15, y - 10
 
-        # Draw background for text label
         bbox = draw.textbbox((label_x, label_y), label_text)
         draw.rectangle(
             [bbox[0] - 2, bbox[1] - 2, bbox[2] + 2, bbox[3] + 2],
             fill="black",
         )
 
-        # Draw the coordinate text
         draw.text((label_x, label_y), label_text, fill="white")
 
     if prev_image is None:
@@ -334,10 +325,8 @@ def load_dataset(session_id, dataset_path):
 
 
 def next_image(session_id, reasoning_text):
-    # Initialize session if needed
     initialize_replay_session(session_id)
 
-    # Save current reasoning if there are any updates
     if tool_calls_list[session_id] is not None and reasoning_text.strip():
         tool_calls_list[session_id][tool_calls_index[session_id]][
             current_tool_call_index[session_id]
@@ -367,10 +356,8 @@ def next_image(session_id, reasoning_text):
 
 
 def prev_image(session_id, reasoning_text):
-    # Initialize session if needed
     initialize_replay_session(session_id)
 
-    # Save current reasoning if there are any updates
     if tool_calls_list[session_id] is not None and reasoning_text.strip():
         tool_calls_list[session_id][tool_calls_index[session_id]][
             current_tool_call_index[session_id]
@@ -398,7 +385,6 @@ def prev_image(session_id, reasoning_text):
 
 
 def edit_reasoning(session_id, reasoning):
-    # Initialize session if needed
     initialize_replay_session(session_id)
 
     assert tool_calls_list[session_id] is not None
@@ -411,7 +397,6 @@ def edit_reasoning(session_id, reasoning):
 def save_dataset(session_id, dataset_path, prompt_text_box_value):
     dataset_path = os.path.join(get_session_dir(session_id), dataset_path)
 
-    # Initialize session if needed
     initialize_replay_session(session_id)
 
     assert (
@@ -452,26 +437,21 @@ def create_dataset_download(session_id, dataset_path, prompt_text_box_value):
     save_dataset(session_id, dataset_path, prompt_text_box_value)
     
     try:
-        # Get the full dataset path
         full_dataset_path = os.path.join(get_session_dir(session_id), dataset_path)
         
         if not os.path.exists(full_dataset_path):
             gr.Warning("Dataset path does not exist!")
             return None
         
-        # Create a temporary zip file
         temp_dir = tempfile.mkdtemp()
         zip_filename = f"{dataset_path.replace('/', '_')}.zip"
         zip_path = os.path.join(temp_dir, zip_filename)
         
-        # Create the zip file
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             dataset_path_obj = Path(full_dataset_path)
             
-            # Add all files in the dataset directory to the zip
             for file_path in dataset_path_obj.rglob('*'):
-                if file_path.is_file():
-                    # Calculate the relative path for the zip archive
+                if file_path.is_file() and not file_path.name.startswith('cache-'):
                     relative_path = file_path.relative_to(dataset_path_obj.parent)
                     zipf.write(file_path, relative_path)
         
@@ -496,7 +476,6 @@ def create_replay_gradio_ui():
             "", storage_key="annotation_app", secret="annotation_app"
         )
 
-        # Consolidated OpenAI configuration state
         openai_config_state = gr.BrowserState(
             {
                 "api_key": "",
@@ -513,7 +492,6 @@ def create_replay_gradio_ui():
             "🌟 **[Star us on GitHub](https://github.com/qykong/browser-use-annotator)** to support this project!"
         )
 
-        # Add API Configuration Section
         with gr.Accordion("OpenAI API Configuration", open=False):
             with gr.Row():
                 api_key_input = gr.Textbox(
@@ -585,13 +563,11 @@ def create_replay_gradio_ui():
             ],
         )
         def initialize_session_on_load(session_id, openai_config):
-            """Initialize session when app loads"""
             if session_id == "":
                 session_id = generate_session_id()
             print(f"Initializing replay session {session_id}")
             initialize_replay_session(session_id)
 
-            # Load saved OpenAI configuration
             api_key = openai_config.get("api_key", "")
             base_url = openai_config.get("base_url", "https://api.openai.com/v1")
             model = openai_config.get("model", "gpt-4o")
@@ -606,9 +582,7 @@ def create_replay_gradio_ui():
                 max_workers,
             )
 
-        # Save OpenAI configuration when changed
         def save_openai_config(openai_config, api_key, base_url, model, max_workers):
-            """Save OpenAI configuration to browser state"""
             updated_config = {
                 "api_key": api_key,
                 "base_url": base_url if base_url.strip() else "https://api.openai.com/v1",
@@ -617,7 +591,6 @@ def create_replay_gradio_ui():
             }
             return updated_config
 
-        # Update config on any input change
         for input_component in [api_key_input, base_url_input, model_input, max_workers_input]:
             input_component.change(
                 save_openai_config,
@@ -625,9 +598,7 @@ def create_replay_gradio_ui():
                 outputs=[openai_config_state],
             )
 
-        # Function to update download button visibility
         def update_download_button_visibility(dataset_path_value):
-            """Show download button when a dataset is selected"""
             return gr.DownloadButton(visible=bool(dataset_path_value))
 
         load_btn.click(
@@ -646,14 +617,12 @@ def create_replay_gradio_ui():
             outputs=[download_btn]
         )
 
-        # Download button click handler
         download_btn.click(
             create_dataset_download,
             inputs=[session_state, dataset_path, prompt_text_box],
             outputs=[download_btn]
         )
 
-        # Auto-annotate button with consolidated config
         auto_annotate_btn.click(
             auto_annotate_all_actions,
             inputs=[
