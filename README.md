@@ -2,8 +2,8 @@
 
 A web-based tool for annotating browser interactions to create high-quality training datasets for vision-language models like **Qwen2.5-VL** and **UI-TARS**.
 
-![Browser Action Annotation Tool Demo](img/demo_1.png)
-
+![Browser Action Annotation Tool Demo](static/demo_1.png)
+![Reasoning Annotation Tool Demo](static/demo_2.png)
 
 ## Perfect for Training
 
