@@ -46,15 +46,18 @@ def get_sessions_data(session_id):
     """Load all sessions dataset"""
 
     combined_ds = load_all_sessions(session_id=session_id)
-    if combined_ds:
-        # Convert to pandas and select columns
-        df = combined_ds.to_pandas()
-        columns = ["name", "messages", "source_folder"]
-        if "tags" in df.columns:
-            columns.append("tags")
-        return df[columns]
-    else:
-        return pd.DataFrame({"name": [""], "messages": [""], "source_folder": [""]})
+    try:
+        if combined_ds:
+            # Convert to pandas and select columns
+            df = combined_ds.to_pandas()
+            columns = ["name", "messages", "source_folder"]
+            if "tags" in df.columns:
+                columns.append("tags")
+            return df[columns]
+    except Exception as e:
+        print(f"Error loading sessions data: {e}; combined_ds: {combined_ds}")
+    
+    return pd.DataFrame({"name": [""], "messages": [""], "source_folder": [""]})
 
 
 def save_demonstration(session_id, log_data, demo_name=None):
