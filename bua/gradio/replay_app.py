@@ -411,7 +411,7 @@ def save_dataset(session_id, dataset_path, prompt_text_box_value):
             tool_calls_list[session_id][0][prompt_text_idx[session_id]]["arguments"]
         )
         prompt_tool_args["text"] = prompt_text_box_value
-        tool_calls_list[session_id][0][1]["arguments"] = json.dumps(prompt_tool_args)
+        tool_calls_list[session_id][0][prompt_text_idx[session_id]]["arguments"] = json.dumps(prompt_tool_args)
     # Create a new dataset with updated tool_calls
     updated_data = {
         "tool_calls": [
