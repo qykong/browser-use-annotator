@@ -201,7 +201,7 @@
         "checkbox_label_text_size": "*text_md",
         "checkbox_label_text_weight": "400",
         "checkbox_shadow": "none",
-        "color_accent": "*neutral_700",
+        "color_accent": "*neutral_800",
         "color_accent_soft": "*neutral_700",
         "color_accent_soft_dark": "*neutral_700",
         "container_radius": "*radius_lg",

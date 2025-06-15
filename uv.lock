@@ -213,6 +213,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "datasets" },
     { name = "gradio" },
+    { name = "gradio-image-annotation" },
     { name = "joblib" },
     { name = "loguru" },
     { name = "openai" },
@@ -225,6 +226,7 @@ dependencies = [
 requires-dist = [
     { name = "datasets", specifier = ">=3.6.0" },
     { name = "gradio", specifier = ">=5.32.0" },
+    { name = "gradio-image-annotation", specifier = ">=0.2.8" },
     { name = "joblib", specifier = ">=1.5.1" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "openai", specifier = ">=1.84.0" },
@@ -573,6 +575,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d2/86/6684afe8691b024200fdc8983924f04b5f76bb401b9c700e5752a23595a0/gradio_client-1.10.2.tar.gz", hash = "sha256:bf71ba95714784fa77ca0cfb20189ad91c55e563c2dc71722d023a97f1815d7f", size = 321294 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9b/1b/b372308c263379ae3ebc440512432979458330113bdee26cef86c89bf48e/gradio_client-1.10.2-py3-none-any.whl", hash = "sha256:6de67b6224123d264c7887caa0586b2a9e2c369ec32ca38927cf8a841694edcd", size = 323311 },
+]
+
+[[package]]
+name = "gradio-image-annotation"
+version = "0.2.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "gradio" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2b/0e/91acd847221b8076787ff8073386766d1328bebc39243668115d0dcebff8/gradio_image_annotation-0.2.8.tar.gz", hash = "sha256:9fafba8aa11bcbe0c8656e19e2552bcaa1babbae1f677844b08024355fc0b201", size = 1747674 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/c6/46c87db5e99279e5d2b931718a6bc939d6f9ccd30375dd7142d1a611b1ef/gradio_image_annotation-0.2.8-py3-none-any.whl", hash = "sha256:aa21d89011e1bb66c3f7805b76d53a2f199801b147adee265480b2e884862a23", size = 90061 },
 ]
 
 [[package]]
